@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'constants/app_constants.dart';
-import 'screens/login_screen.dart';
-import 'screens/signup_screen.dart';
+import 'screens/auth_wrapper.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
+  await Firebase.initializeApp();
+
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
     ),
   );
+
   runApp(const StressCalmApp());
 }
 
@@ -61,9 +66,9 @@ class StressCalmApp extends StatelessWidget {
             borderRadius: AppRadius.mdBorder,
             borderSide: const BorderSide(color: AppColors.error, width: 1.5),
           ),
-          hintStyle: TextStyle(color: AppColors.textHint, fontSize: 16),
+          hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 16),
           labelStyle: AppTextStyles.label,
-          errorStyle: TextStyle(color: AppColors.error, fontSize: 12),
+          errorStyle: const TextStyle(color: AppColors.error, fontSize: 12),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
@@ -110,51 +115,7 @@ class StressCalmApp extends StatelessWidget {
           ),
         ),
       ),
-      initialRoute: '/login',
-      routes: {
-        '/login': (context) => const LoginScreen(),
-        '/signup': (context) => const SignUpScreen(),
-        '/dashboard': (context) => const DashboardPlaceholder(),
-      },
-    );
-  }
-}
-
-// Placeholder for dashboard - replace with actual implementation
-class DashboardPlaceholder extends StatelessWidget {
-  const DashboardPlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.check_circle_outline,
-              size: 80,
-              color: AppColors.primary,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            Text('Welcome!', style: AppTextStyles.h2),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              'You are logged in',
-              style: AppTextStyles.bodyLarge.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xl),
-            TextButton(
-              onPressed: () =>
-                  Navigator.pushReplacementNamed(context, '/login'),
-              child: const Text('Log Out'),
-            ),
-          ],
-        ),
-      ),
+      home: const AuthWrapper(),
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import '../constants/app_constants.dart';
+import '../services/auth_service.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
 
@@ -18,6 +19,7 @@ class _SignUpScreenState extends State<SignUpScreen>
   final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _authService = AuthService();
 
   bool _isLoading = false;
   bool _agreedToTerms = false;
@@ -66,40 +68,110 @@ class _SignUpScreenState extends State<SignUpScreen>
     if (!_formKey.currentState!.validate()) return;
 
     if (!_agreedToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Please agree to the Terms & Privacy Policy'),
-          backgroundColor: AppColors.error,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
-        ),
-      );
+      _showErrorSnackBar('Please agree to the Terms & Privacy Policy');
       return;
     }
 
     setState(() => _isLoading = true);
 
-    // Simulate API call
-    await Future.delayed(const Duration(milliseconds: 1500));
+    final result = await _authService.signUp(
+      email: _emailController.text,
+      password: _passwordController.text,
+      displayName: _nameController.text,
+    );
 
     if (mounted) {
       setState(() => _isLoading = false);
-      Navigator.pushReplacementNamed(context, '/dashboard');
+
+      if (result.success) {
+        // Send email verification
+        await _authService.sendEmailVerification();
+
+        // Show success message and pop back
+        _showSuccessSnackBar('Account created! Please verify your email.');
+        Navigator.pop(context);
+      } else {
+        _showErrorSnackBar(result.errorMessage!);
+      }
     }
   }
 
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
+      ),
+    );
+  }
+
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
+      ),
+    );
+  }
+
   void _showTermsDialog() {
-    // TODO: Show Terms dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Terms of Service'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Terms of Service content goes here...\n\n'
+            'By using this app, you agree to these terms.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showPrivacyDialog() {
-    // TODO: Show Privacy Policy dialog
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Privacy Policy'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Privacy Policy content goes here...\n\n'
+            'We respect your privacy and protect your data.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios, color: AppColors.textPrimary),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SafeArea(
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -109,21 +181,11 @@ class _SignUpScreenState extends State<SignUpScreen>
               padding: AppSpacing.screenPadding,
               child: Column(
                 children: [
-                  const SizedBox(height: AppSpacing.xl),
-
-                  // Header
                   _buildHeader(),
-
                   const SizedBox(height: AppSpacing.xl),
-
-                  // Form
                   _buildForm(),
-
                   const SizedBox(height: AppSpacing.lg),
-
-                  // Footer
                   _buildFooter(),
-
                   const SizedBox(height: AppSpacing.xl),
                 ],
               ),
@@ -153,7 +215,6 @@ class _SignUpScreenState extends State<SignUpScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Email Field
           AppTextField(
             label: 'Email',
             hintText: 'you@example.com',
@@ -170,13 +231,10 @@ class _SignUpScreenState extends State<SignUpScreen>
               return null;
             },
           ),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Name Field
           AppTextField(
             label: 'Name',
-            hintText: 'How would you like to be called in this app?',
+            hintText: 'John Doe',
             controller: _nameController,
             keyboardType: TextInputType.name,
             textInputAction: TextInputAction.next,
@@ -188,10 +246,7 @@ class _SignUpScreenState extends State<SignUpScreen>
               return null;
             },
           ),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Password Field
           AppPasswordField(
             label: 'Password',
             controller: _passwordController,
@@ -207,10 +262,7 @@ class _SignUpScreenState extends State<SignUpScreen>
               return null;
             },
           ),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Confirm Password Field
           AppPasswordField(
             label: 'Confirm Password',
             controller: _confirmPasswordController,
@@ -226,20 +278,11 @@ class _SignUpScreenState extends State<SignUpScreen>
               return null;
             },
           ),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Terms Checkbox
           _buildTermsCheckbox(),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Disclaimer Box
           _buildDisclaimer(),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Sign Up Button
           AppButton(
             text: 'Create Account',
             isLoading: _isLoading,
@@ -265,7 +308,7 @@ class _SignUpScreenState extends State<SignUpScreen>
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(4),
             ),
-            side: BorderSide(color: AppColors.textHint, width: 1.5),
+            side: const BorderSide(color: AppColors.textHint, width: 1.5),
             activeColor: AppColors.primary,
           ),
         ),
@@ -335,10 +378,7 @@ class _SignUpScreenState extends State<SignUpScreen>
           style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint),
         ),
         const SizedBox(width: AppSpacing.sm),
-        AppTextButton(
-          text: 'Log in',
-          onPressed: () => Navigator.pushReplacementNamed(context, '/login'),
-        ),
+        AppTextButton(text: 'Log in', onPressed: () => Navigator.pop(context)),
       ],
     );
   }

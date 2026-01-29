@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
+import '../services/auth_service.dart';
 import '../widgets/app_button.dart';
 import '../widgets/app_text_field.dart';
+import 'signup_screen.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _authService = AuthService();
 
   bool _isLoading = false;
 
@@ -61,13 +65,44 @@ class _LoginScreenState extends State<LoginScreen>
 
     setState(() => _isLoading = true);
 
-    // Simulate API call
-    await Future.delayed(const Duration(milliseconds: 1500));
+    final result = await _authService.signIn(
+      email: _emailController.text,
+      password: _passwordController.text,
+    );
 
     if (mounted) {
       setState(() => _isLoading = false);
-      Navigator.pushReplacementNamed(context, '/dashboard');
+
+      if (!result.success) {
+        _showErrorSnackBar(result.errorMessage!);
+      }
+      // If successful, AuthWrapper will automatically navigate to dashboard
     }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
+      ),
+    );
+  }
+
+  void _navigateToSignUp() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SignUpScreen()),
+    );
+  }
+
+  void _navigateToForgotPassword() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
+    );
   }
 
   @override
@@ -92,20 +127,11 @@ class _LoginScreenState extends State<LoginScreen>
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const SizedBox(height: AppSpacing.xxl),
-
-                    // Header
                     _buildHeader(),
-
                     const SizedBox(height: AppSpacing.xxl),
-
-                    // Form
                     _buildForm(),
-
                     const SizedBox(height: AppSpacing.xl),
-
-                    // Footer
                     _buildFooter(),
-
                     const SizedBox(height: AppSpacing.xl),
                   ],
                 ),
@@ -120,7 +146,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildHeader() {
     return Column(
       children: [
-        Text('Welcome', style: AppTextStyles.h2),
+        Text('Welcome Back', style: AppTextStyles.h2),
         const SizedBox(height: AppSpacing.sm),
         Text(
           'Continue your wellness journey',
@@ -136,7 +162,6 @@ class _LoginScreenState extends State<LoginScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Email Field
           AppTextField(
             label: 'Email',
             hintText: 'you@example.com',
@@ -153,10 +178,7 @@ class _LoginScreenState extends State<LoginScreen>
               return null;
             },
           ),
-
           const SizedBox(height: AppSpacing.lg),
-
-          // Password Field
           AppPasswordField(
             label: 'Password',
             controller: _passwordController,
@@ -169,24 +191,16 @@ class _LoginScreenState extends State<LoginScreen>
               return null;
             },
           ),
-
           const SizedBox(height: AppSpacing.sm),
-
-          // Forgot Password
           Align(
             alignment: Alignment.centerRight,
             child: AppTextButton(
               text: 'Forgot password?',
               fontSize: 12,
-              onPressed: () {
-                // TODO: Navigate to forgot password
-              },
+              onPressed: _navigateToForgotPassword,
             ),
           ),
-
           const SizedBox(height: AppSpacing.xl),
-
-          // Login Button
           AppButton(
             text: 'Log In',
             isLoading: _isLoading,
@@ -205,10 +219,7 @@ class _LoginScreenState extends State<LoginScreen>
           style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint),
         ),
         const SizedBox(height: AppSpacing.sm),
-        AppTextButton(
-          text: 'Create an account',
-          onPressed: () => Navigator.pushReplacementNamed(context, '/signup'),
-        ),
+        AppTextButton(text: 'Create an account', onPressed: _navigateToSignUp),
       ],
     );
   }
