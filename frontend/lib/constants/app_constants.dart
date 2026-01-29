@@ -18,6 +18,7 @@ class AppColors {
   static const Color background = Color(0xFFFFFFFF);
   static const Color surface = Color(0xFFF7F7F5);
   static const Color surfaceLight = Color(0xFFFAFAFA);
+  static const Color surfaceRed = Color(0xFFFEE2E2);
 
   // Border Colors
   static const Color border = Color(0xFFE2E8F0);
@@ -26,7 +27,7 @@ class AppColors {
   // Status Colors
   static const Color success = Color(0xFF68D391);
   static const Color warning = Color(0xFFF6E05E);
-  static const Color error = Color(0xFFE89B9B);
+  static const Color error = Color(0xFFDC2626);
   static const Color info = Color(0xFF63B3ED);
 
   // Stress Level Colors
