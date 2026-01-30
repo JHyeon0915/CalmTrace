@@ -34,6 +34,10 @@ dependencies:
   # Firebase
   firebase_core: ^3.8.1
   firebase_auth: ^5.3.4
+  cloud_firestore: ^5.6.0
+
+  # Local Storage
+  shared_preferences: ^2.3.4
 
   # UI
   cupertino_icons: ^1.0.8
