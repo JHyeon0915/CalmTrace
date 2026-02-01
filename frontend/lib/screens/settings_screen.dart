@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
+import '../services/device_feedback_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -11,6 +12,90 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _authService = AuthService();
+  final _feedbackService = DeviceFeedbackService();
+
+  DeviceFeedbackType _selectedFeedback = DeviceFeedbackType.vibration;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFeedbackSetting();
+  }
+
+  Future<void> _loadFeedbackSetting() async {
+    final feedbackType = await _feedbackService.getFeedbackType();
+    if (mounted) {
+      setState(() {
+        _selectedFeedback = feedbackType;
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _onFeedbackOptionTap(DeviceFeedbackType type) async {
+    if (type == _selectedFeedback) return;
+
+    final confirmed = await _showFeedbackConfirmDialog(type);
+
+    if (confirmed == true) {
+      await _feedbackService.setFeedbackType(type);
+      if (mounted) {
+        setState(() => _selectedFeedback = type);
+        _showSuccessSnackBar('Device feedback changed to ${type.title}');
+      }
+    }
+  }
+
+  Future<bool?> _showFeedbackConfirmDialog(DeviceFeedbackType type) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.lgBorder),
+        title: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.success.withValues(alpha: 0.1),
+                borderRadius: AppRadius.smBorder,
+              ),
+              child: Icon(type.icon, color: AppColors.success, size: 20),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Text(type.title, style: AppTextStyles.h4),
+          ],
+        ),
+        content: Text(
+          type.confirmationMessage,
+          style: AppTextStyles.bodyMedium.copyWith(
+            color: AppColors.textSecondary,
+            height: 1.5,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(
+              'Confirm',
+              style: TextStyle(
+                color: AppColors.success,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _handleLogout() async {
     final shouldLogout = await _showConfirmDialog(
@@ -53,12 +138,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (confirmDelete != true) return;
 
-    await _authService.deleteAccount();
+    final result = await _authService.deleteAccount();
 
     if (!mounted) return;
 
-    // Clear SETTINGS page from stack
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    if (result.success) {
+      // Clear SETTINGS page from stack
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    } else {
+      _showErrorSnackBar(result.errorMessage ?? 'Failed to delete account');
+    }
   }
 
   Future<bool?> _showConfirmDialog({
@@ -113,6 +202,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.success,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,21 +227,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text('Settings', style: AppTextStyles.h4),
         centerTitle: false,
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: AppSpacing.lg),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: AppSpacing.lg),
 
-            // Account Section
-            _buildSectionHeader('Account'),
-            const SizedBox(height: AppSpacing.sm),
-            _buildAccountSection(),
+                  // Device Feedback Section
+                  _buildDeviceFeedbackSection(),
 
-            const SizedBox(height: AppSpacing.xl),
-          ],
-        ),
-      ),
+                  const SizedBox(height: AppSpacing.xl),
+
+                  // Account Section
+                  _buildSectionHeader('Account'),
+                  const SizedBox(height: AppSpacing.sm),
+                  _buildAccountSection(),
+
+                  const SizedBox(height: AppSpacing.xl),
+                ],
+              ),
+            ),
     );
   }
 
@@ -158,6 +265,157 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildDeviceFeedbackSection() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: AppRadius.lgBorder,
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: AppColors.textGreen.withValues(alpha: 0.2),
+                  borderRadius: AppRadius.smBorder,
+                ),
+                child: Icon(
+                  Icons.smartphone_outlined,
+                  color: AppColors.textGreen,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Device Feedback',
+                      style: AppTextStyles.bodyLarge.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'When Emotiv headset or smartwatch is connected',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Feedback Options Grid
+          _buildFeedbackOptionsGrid(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFeedbackOptionsGrid() {
+    return Column(
+      children: [
+        // First row: Vibration & Ring
+        Row(
+          children: [
+            Expanded(child: _buildFeedbackOption(DeviceFeedbackType.vibration)),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(child: _buildFeedbackOption(DeviceFeedbackType.ring)),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        // Second row: Notification & None
+        Row(
+          children: [
+            Expanded(
+              child: _buildFeedbackOption(DeviceFeedbackType.notification),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(child: _buildFeedbackOption(DeviceFeedbackType.none)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFeedbackOption(DeviceFeedbackType type) {
+    final isSelected = _selectedFeedback == type;
+
+    return GestureDetector(
+      onTap: () => _onFeedbackOptionTap(type),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(
+          vertical: AppSpacing.lg,
+          horizontal: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.textGreen.withValues(alpha: 0.05)
+              : AppColors.surface,
+          borderRadius: AppRadius.mdBorder,
+          border: Border.all(
+            color: isSelected ? AppColors.textGreen : AppColors.border,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Column(
+          children: [
+            // Icon
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppColors.textGreen.withValues(alpha: 0.2)
+                    : AppColors.background,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                type.icon,
+                color: isSelected
+                    ? AppColors.textGreen
+                    : AppColors.textSecondary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            // Title
+            Text(
+              type.title,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: isSelected ? AppColors.textGreen : AppColors.textPrimary,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 2),
+            // Subtitle
+            Text(
+              type.subtitle,
+              style: AppTextStyles.labelSmall.copyWith(
+                color: AppColors.textHint,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildAccountSection() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -166,7 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         borderRadius: AppRadius.lgBorder,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -187,7 +445,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Divider(
             height: 1,
             thickness: 1,
-            color: AppColors.border.withOpacity(0.5),
+            color: AppColors.border.withValues(alpha: 0.5),
             indent: 72,
           ),
 
