@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import 'calm_puzzle_screen.dart';
+import 'mindful_tapping_screen.dart';
 
 class GamesScreen extends StatelessWidget {
   const GamesScreen({super.key});
@@ -56,8 +57,12 @@ class GamesScreen extends StatelessWidget {
                 title: 'Mindful Tapping',
                 description: 'Rhythmic tapping for focus.',
                 onTap: () {
-                  // TODO: Navigate to Mindful Tapping
-                  _showComingSoon(context, 'Mindful Tapping');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const MindfulTappingScreen(),
+                    ),
+                  );
                 },
               ),
 
