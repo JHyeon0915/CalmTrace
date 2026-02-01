@@ -3,6 +3,7 @@ import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import 'settings_screen.dart';
+import 'games_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -40,7 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 2:
         return _buildPlaceholder('Therapy');
       case 3:
-        return _buildPlaceholder('Games');
+        return const GamesScreen();
       default:
         return _buildHomeContent();
     }
@@ -192,7 +193,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   vertical: AppSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.stressLow.withOpacity(0.15),
+                  color: AppColors.stressLow.withValues(alpha: 0.15),
                   borderRadius: AppRadius.roundBorder,
                 ),
                 child: Text(
@@ -318,7 +319,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: AppColors.primary.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -385,7 +386,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.1),
+              color: iconColor.withValues(alpha: 0.1),
               borderRadius: AppRadius.smBorder,
             ),
             child: Icon(icon, color: iconColor, size: 20),
@@ -423,7 +424,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   borderRadius: AppRadius.smBorder,
                 ),
                 child: const Center(
-                  child: Text('💡', style: TextStyle(fontSize: 16)),
+                  child: Text('💡', style: TextStyle(fontSize: 14)),
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
