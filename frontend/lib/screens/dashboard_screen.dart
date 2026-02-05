@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
+import 'therapy_hub_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -39,7 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 1:
         return _buildPlaceholder('Tracking');
       case 2:
-        return _buildPlaceholder('Therapy');
+        return const TherapyHubScreen();
       case 3:
         return const GamesScreen();
       default:
