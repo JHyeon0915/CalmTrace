@@ -504,7 +504,7 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
               ),
               const SizedBox(width: AppSpacing.xs),
               Text(
-                'EEG STRESS LEVEL (TEST MODE)',
+                'STRESS LEVEL (TEST MODE)',
                 style: AppTextStyles.labelSmall.copyWith(
                   color: AppColors.textSecondary,
                   fontWeight: FontWeight.w600,

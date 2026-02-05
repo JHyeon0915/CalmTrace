@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:frontend/screens/rhythm_flow_screen.dart';
 import '../constants/app_constants.dart';
 import 'calm_puzzle_screen.dart';
 import 'mindful_tapping_screen.dart';
@@ -73,8 +74,12 @@ class GamesScreen extends StatelessWidget {
                 title: 'Rhythm Flow',
                 description: 'Match the gentle beat.',
                 onTap: () {
-                  // TODO: Navigate to Rhythm Flow
-                  _showComingSoon(context, 'Rhythm Flow');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RhythmFlowScreen(),
+                    ),
+                  );
                 },
               ),
 
@@ -195,16 +200,6 @@ class GamesScreen extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showComingSoon(BuildContext context, String gameName) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$gameName coming soon!'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
       ),
     );
   }
