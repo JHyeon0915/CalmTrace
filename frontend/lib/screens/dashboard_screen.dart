@@ -4,6 +4,8 @@ import '../services/auth_service.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
+import 'therapy_hub_screen.dart';
+import 'guided_breathing_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -39,7 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 1:
         return _buildPlaceholder('Tracking');
       case 2:
-        return _buildPlaceholder('Therapy');
+        return const TherapyHubScreen();
       case 3:
         return const GamesScreen();
       default:
@@ -357,6 +359,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.air,
           title: 'Practice Breathing',
           iconColor: AppColors.primary,
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const GuidedBreathingScreen(),
+              ),
+            );
+          },
         ),
         const SizedBox(height: AppSpacing.sm),
         _buildGoalItem(
@@ -372,33 +382,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required IconData icon,
     required String title,
     required Color iconColor,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: AppRadius.mdBorder,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.1),
-              borderRadius: AppRadius.smBorder,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: AppRadius.mdBorder,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.1),
+                borderRadius: AppRadius.smBorder,
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
             ),
-            child: Icon(icon, color: iconColor, size: 20),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Text(
-            title,
-            style: AppTextStyles.bodyLarge.copyWith(
-              fontWeight: FontWeight.w500,
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Text(
+                title,
+                style: AppTextStyles.bodyLarge.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
             ),
-          ),
-        ],
+            if (onTap != null)
+              Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
+          ],
+        ),
       ),
     );
   }
