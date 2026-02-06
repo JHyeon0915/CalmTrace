@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import 'cognitive_reframing_screen.dart';
+import 'guided_breathing_screen.dart';
 
 class TherapyHubScreen extends StatelessWidget {
   const TherapyHubScreen({super.key});
@@ -78,6 +79,13 @@ class TherapyHubScreen extends StatelessWidget {
                         builder: (context) => const CognitiveReframingScreen(),
                       ),
                     );
+                  } else if (therapies[index].path == '/therapy/breathing') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const GuidedBreathingScreen(),
+                      ),
+                    );
                   }
                   // Add other navigation routes as needed
                 },
@@ -133,7 +141,7 @@ class TherapyCard extends StatelessWidget {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: therapy.color.withOpacity(0.15),
+                color: therapy.color.withValues(alpha: 0.15),
                 borderRadius: AppRadius.mdBorder,
               ),
               child: Icon(therapy.icon, color: therapy.color, size: 24),
