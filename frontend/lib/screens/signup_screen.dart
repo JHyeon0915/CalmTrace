@@ -88,7 +88,7 @@ class _SignUpScreenState extends State<SignUpScreen>
         await _authService.sendEmailVerification();
 
         // Show success message and pop back
-        _showSuccessSnackBar('Account created! Please verify your email.');
+        _showSuccessSnackBar('Account created!');
         Navigator.pop(context);
       } else {
         _showErrorSnackBar(result.errorMessage!);

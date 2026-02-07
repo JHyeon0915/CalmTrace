@@ -6,21 +6,13 @@ class AuthResult {
   final String? errorMessage;
   final User? user;
 
-  AuthResult({
-    required this.success,
-    this.errorMessage,
-    this.user,
-  });
+  AuthResult({required this.success, this.errorMessage, this.user});
 
-  factory AuthResult.success(User user) => AuthResult(
-        success: true,
-        user: user,
-      );
+  factory AuthResult.success(User user) =>
+      AuthResult(success: true, user: user);
 
-  factory AuthResult.failure(String message) => AuthResult(
-        success: false,
-        errorMessage: message,
-      );
+  factory AuthResult.failure(String message) =>
+      AuthResult(success: false, errorMessage: message);
 }
 
 /// Firebase Authentication Service
@@ -35,6 +27,13 @@ class AuthService {
 
   // Check if user is logged in
   bool get isLoggedIn => currentUser != null;
+
+  /// Get Firebase ID token for API authentication
+  Future<String?> getIdToken() async {
+    final user = _auth.currentUser;
+    if (user == null) return null;
+    return user.getIdToken();
+  }
 
   /// Sign up with email and password
   Future<AuthResult> signUp({
@@ -58,7 +57,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 
@@ -77,7 +78,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 
@@ -94,7 +97,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 
@@ -106,7 +111,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 
@@ -127,7 +134,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 
@@ -139,7 +148,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 
@@ -151,7 +162,9 @@ class AuthService {
     } on FirebaseAuthException catch (e) {
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
-      return AuthResult.failure('An unexpected error occurred. Please try again.');
+      return AuthResult.failure(
+        'An unexpected error occurred. Please try again.',
+      );
     }
   }
 

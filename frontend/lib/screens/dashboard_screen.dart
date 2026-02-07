@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
+import '../services/streak_service.dart';
 import '../widgets/app_bottom_nav_bar.dart';
+import '../widgets/streak_celebration_modal.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
@@ -16,10 +18,106 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _authService = AuthService();
+  final _streakService = StreakService();
   int _currentIndex = 0;
+  int _streakCount = 0;
+  int _goalsCompleted = 0;
+  final int _totalGoals = 2;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStreakData();
+  }
+
+  Future<void> _loadStreakData() async {
+    try {
+      debugPrint('🔄 Loading streak data...');
+
+      // Get streak from backend
+      final streak = await _streakService.checkAndUpdateStreak();
+      debugPrint('📊 Streak from API: $streak');
+
+      if (!mounted) return;
+
+      setState(() {
+        _streakCount = streak;
+        _isLoading = false;
+      });
+
+      debugPrint('✅ State updated - streakCount: $_streakCount');
+
+      // Check if we should show celebration
+      if (streak > 0) {
+        final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
+        debugPrint('👀 Has seen today celebration: $hasSeenToday');
+
+        if (!hasSeenToday && mounted) {
+          // Small delay to let the screen build first
+          await Future.delayed(const Duration(milliseconds: 500));
+
+          if (!mounted) return;
+
+          await _streakService.markCelebrationSeen();
+          debugPrint('🎉 Showing celebration modal for streak: $streak');
+
+          _showCelebrationModal(streak, false);
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading streak: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showCelebrationModal(int streakCount, bool isNewStreak) {
+    if (!mounted) return;
+
+    StreakCelebrationModal.show(
+      context,
+      streakCount: streakCount,
+      isNewStreak: isNewStreak,
+    );
+  }
 
   void _onNavTap(int index) {
     setState(() => _currentIndex = index);
+  }
+
+  Future<void> _onGoalCompleted() async {
+    try {
+      debugPrint('🎯 Completing goal...');
+      final result = await _streakService.completeGoal();
+      debugPrint(
+        '📊 Goal complete result - streak: ${result.streakCount}, shouldCelebrate: ${result.shouldCelebrate}',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _streakCount = result.streakCount;
+        _goalsCompleted = (_goalsCompleted + 1).clamp(0, _totalGoals);
+      });
+
+      // Show celebration if needed
+      if (result.shouldCelebrate) {
+        final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
+        debugPrint('👀 Has seen today (after goal): $hasSeenToday');
+
+        if (!hasSeenToday && mounted) {
+          await _streakService.markCelebrationSeen();
+          debugPrint('🎉 Showing celebration after goal completion');
+          _showCelebrationModal(result.streakCount, result.isNewStreak);
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error completing goal: $e');
+    }
   }
 
   @override
@@ -122,18 +220,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Row(
       children: [
         Expanded(
-          child: _buildStatCard(
-            icon: '🔥',
-            value: '5',
-            label: 'Day Streak',
-            backgroundColor: const Color(0xFFFFF4E5),
+          child: GestureDetector(
+            onTap: () {
+              if (_streakCount > 0) {
+                _showCelebrationModal(_streakCount, false);
+              }
+            },
+            child: _buildStatCard(
+              icon: '🔥',
+              value: _isLoading ? '-' : '$_streakCount',
+              label: 'Day Streak',
+              backgroundColor: const Color(0xFFFFF4E5),
+            ),
           ),
         ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: _buildStatCard(
             icon: '🏆',
-            value: '1/2',
+            value: '$_goalsCompleted/$_totalGoals',
             label: 'Daily Goals',
             backgroundColor: const Color(0xFFFFF9E5),
           ),
@@ -195,7 +300,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   vertical: AppSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.stressLow.withValues(alpha: 0.15),
+                  color: AppColors.stressLow.withOpacity(0.15),
                   borderRadius: AppRadius.roundBorder,
                 ),
                 child: Text(
@@ -321,7 +426,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
+                    color: AppColors.primary.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -359,13 +464,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.air,
           title: 'Practice Breathing',
           iconColor: AppColors.primary,
-          onTap: () {
-            Navigator.push(
+          onTap: () async {
+            final result = await Navigator.push<bool>(
               context,
               MaterialPageRoute(
                 builder: (context) => const GuidedBreathingScreen(),
               ),
             );
+            if (result == true) {
+              _onGoalCompleted();
+            }
           },
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -373,6 +481,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           icon: Icons.show_chart,
           title: 'Check Stress Levels',
           iconColor: AppColors.warning,
+          onTap: () {
+            _onGoalCompleted();
+          },
         ),
       ],
     );
@@ -399,7 +510,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.1),
+                color: iconColor.withOpacity(0.1),
                 borderRadius: AppRadius.smBorder,
               ),
               child: Icon(icon, color: iconColor, size: 20),

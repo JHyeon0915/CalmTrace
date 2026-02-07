@@ -3,6 +3,7 @@
 **/.DS_Store
 
 ## Frontend
+/frontend/.env
 
 # Miscellaneous
 /frontend/*.class
@@ -51,7 +52,6 @@
 /frontend/android/app/release
 
 ## Backend
-
 /backend/.venv/
 /backend/**/__pycache__/
 /backend/.env
