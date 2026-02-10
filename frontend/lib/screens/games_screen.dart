@@ -23,10 +23,8 @@ class GamesScreen extends StatelessWidget {
               Text('Relaxing Games', style: AppTextStyles.h2),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                'Short sessions (≤ 5 min)',
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.textSecondary,
-                ),
+                'Short games to relieve your stress (≤ 3 min)',
+                style: AppTextStyles.bodyMedium,
               ),
 
               const SizedBox(height: AppSpacing.lg),

@@ -183,12 +183,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Text('Hi, $name', style: AppTextStyles.h2),
             const SizedBox(height: 4),
-            Text(
-              'Ready to find your calm?',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
+            Text('Ready to find your calm?', style: AppTextStyles.bodyMedium),
           ],
         ),
         GestureDetector(
@@ -300,7 +295,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   vertical: AppSpacing.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.stressLow.withOpacity(0.15),
+                  color: AppColors.stressLow.withValues(alpha: 0.15),
                   borderRadius: AppRadius.roundBorder,
                 ),
                 child: Text(
@@ -353,12 +348,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
-                      'Low Stress',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
                   ],
                 ),
               ],
@@ -368,16 +357,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'AI Confidence',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
+              Text('AI Confidence', style: AppTextStyles.bodyMedium),
               Text(
                 '92 %',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
+                style: AppTextStyles.bodyMedium.copyWith(
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -403,7 +386,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Text(
                 'Trending down from yesterday',
                 style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
+                  color: AppColors.textPrimary,
                 ),
               ),
             ],
@@ -426,7 +409,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   width: 24,
                   height: 24,
                   decoration: BoxDecoration(
-                    color: AppColors.primary.withOpacity(0.1),
+                    color: AppColors.primary.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -510,7 +493,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: iconColor.withOpacity(0.1),
+                color: iconColor.withValues(alpha: 0.1),
                 borderRadius: AppRadius.smBorder,
               ),
               child: Icon(icon, color: iconColor, size: 20),
@@ -578,16 +561,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               style: AppTextStyles.bodySmall,
               children: [
                 TextSpan(
-                  text: 'Try this: ',
-                  style: TextStyle(
-                    color: AppColors.stressLow,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                TextSpan(
                   text:
                       'Digital overload contributes to mental fatigue and stress.',
-                  style: TextStyle(color: AppColors.textSecondary),
+                  style: AppTextStyles.bodySmall,
                 ),
               ],
             ),
