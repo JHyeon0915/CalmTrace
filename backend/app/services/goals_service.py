@@ -15,7 +15,7 @@ AVAILABLE_GOALS = {
     },
     "therapy": {
         "title": "Try a Therapy Technique",
-        "description": "Use mindfulness or grounding",
+        "description": "Use mindfulness or cognitive reframing",
     },
     "games": {
         "title": "Play a Relaxing Game",

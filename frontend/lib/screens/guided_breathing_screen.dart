@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../constants/app_constants.dart';
+import 'acitivity_completion_screen.dart';
 
 class GuidedBreathingScreen extends StatefulWidget {
   const GuidedBreathingScreen({super.key});
@@ -69,10 +70,12 @@ class _GuidedBreathingScreenState extends State<GuidedBreathingScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isCompleted) {
-      return _CompletionScreen(
+      return ActivityCompletionScreen(
+        config: CompletionConfig.breathing,
+        activityType: ActivityType.breathing,
         onReturn: () {
           _stopAudio();
-          Navigator.pop(context);
+          Navigator.pop(context, true); // Return true to indicate completion
         },
       );
     }
@@ -91,7 +94,7 @@ class _GuidedBreathingScreenState extends State<GuidedBreathingScreen> {
                   GestureDetector(
                     onTap: () {
                       _stopAudio();
-                      Navigator.pop(context);
+                      Navigator.pop(context, false);
                     },
                     child: const Icon(
                       Icons.arrow_back,
@@ -403,210 +406,6 @@ class _BreathingCircleState extends State<BreathingCircle>
           ),
         ),
       ],
-    );
-  }
-}
-
-// Completion Screen with animations
-class _CompletionScreen extends StatefulWidget {
-  final VoidCallback onReturn;
-
-  const _CompletionScreen({required this.onReturn});
-
-  @override
-  State<_CompletionScreen> createState() => _CompletionScreenState();
-}
-
-class _CompletionScreenState extends State<_CompletionScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _iconController;
-  late AnimationController _contentController;
-  late Animation<double> _iconScaleAnimation;
-  late Animation<double> _iconFadeAnimation;
-  late Animation<double> _titleFadeAnimation;
-  late Animation<Offset> _titleSlideAnimation;
-  late Animation<double> _subtitleFadeAnimation;
-  late Animation<Offset> _subtitleSlideAnimation;
-  late Animation<double> _buttonFadeAnimation;
-  late Animation<Offset> _buttonSlideAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _iconController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    _contentController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _iconScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _iconController, curve: Curves.elasticOut),
-    );
-
-    _iconFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _iconController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
-    );
-
-    _titleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
-    );
-
-    _titleSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-          ),
-        );
-
-    _subtitleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-      ),
-    );
-
-    _subtitleSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-          ),
-        );
-
-    _buttonFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-      ),
-    );
-
-    _buttonSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-          ),
-        );
-
-    _iconController.forward().then((_) {
-      _contentController.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _iconController.dispose();
-    _contentController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Animated icon
-                FadeTransition(
-                  opacity: _iconFadeAnimation,
-                  child: ScaleTransition(
-                    scale: _iconScaleAnimation,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF7BC67E).withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle_outline,
-                        color: Color(0xFF7BC67E),
-                        size: 56,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-
-                // Animated title
-                SlideTransition(
-                  position: _titleSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _titleFadeAnimation,
-                    child: Text('Session Complete', style: AppTextStyles.h2),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-
-                // Animated subtitle
-                SlideTransition(
-                  position: _subtitleSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _subtitleFadeAnimation,
-                    child: Text(
-                      "You've taken a moment for yourself.",
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-
-                // Animated button
-                SlideTransition(
-                  position: _buttonSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _buttonFadeAnimation,
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: widget.onReturn,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            vertical: AppSpacing.md,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: AppRadius.mdBorder,
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Return to Hub',
-                          style: AppTextStyles.bodyLarge.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
