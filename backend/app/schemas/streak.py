@@ -53,6 +53,10 @@ class GoalCompleteRequest(BaseModel):
     goalType: GoalType
 
 
+class SetGoalsRequest(BaseModel):
+    goalTypes: List[str]
+
+
 class GoalCompleteResponse(BaseModel):
     success: bool
     goalType: GoalType
