@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
+import 'game_completion_screen.dart';
 
 enum TappingStressLevel { high, medium, low }
 
@@ -96,11 +97,17 @@ class MindfulTappingScreen extends StatefulWidget {
 
 class _MindfulTappingScreenState extends State<MindfulTappingScreen>
     with TickerProviderStateMixin {
+  static const int _gameDurationSeconds = 120; // 2 minutes
+
   TappingStressLevel _stressLevel = TappingStressLevel.medium;
   bool _isPlaying = false;
+  bool _isComplete = false;
   int _score = 0;
+  int _totalSpawned = 0;
+  int _timeRemaining = _gameDurationSeconds;
   List<TappingCircle> _circles = [];
   Timer? _spawnTimer;
+  Timer? _gameTimer;
   final Random _random = Random();
 
   final List<Color> _circleColors = const [
@@ -125,20 +132,57 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
   void _startGame() {
     setState(() {
       _isPlaying = true;
+      _isComplete = false;
       _circles = [];
+      _score = 0;
+      _totalSpawned = 0;
+      _timeRemaining = _gameDurationSeconds;
     });
     _startSpawning();
+    _startTimer();
+  }
+
+  void _startTimer() {
+    _gameTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _timeRemaining--;
+          if (_timeRemaining <= 0) {
+            _endGame();
+          }
+        });
+      }
+    });
+  }
+
+  void _endGame() {
+    _spawnTimer?.cancel();
+    _gameTimer?.cancel();
+    setState(() {
+      _isPlaying = false;
+      _isComplete = true;
+    });
   }
 
   void _pauseGame() {
     _spawnTimer?.cancel();
+    _gameTimer?.cancel();
     setState(() {
       _isPlaying = false;
     });
   }
 
+  void _resumeGame() {
+    setState(() {
+      _isPlaying = true;
+    });
+    _startSpawning();
+    _startTimer();
+  }
+
   void _stopGame() {
     _spawnTimer?.cancel();
+    _gameTimer?.cancel();
     for (var controller in _circleAnimControllers.values) {
       controller.dispose();
     }
@@ -149,7 +193,10 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
     _stopGame();
     setState(() {
       _isPlaying = false;
+      _isComplete = false;
       _score = 0;
+      _totalSpawned = 0;
+      _timeRemaining = _gameDurationSeconds;
       _circles = [];
     });
   }
@@ -195,6 +242,7 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
 
     setState(() {
       _circles.add(newCircle);
+      _totalSpawned++;
     });
 
     // Auto-remove after 3 seconds
@@ -231,8 +279,27 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
     _removeCircle(id, tapped: true);
   }
 
+  String _formatTime(int seconds) {
+    final mins = seconds ~/ 60;
+    final secs = seconds % 60;
+    return '$mins:${secs.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Show game end screen when complete
+    if (_isComplete) {
+      return GameCompletionScreen(
+        gameName: 'Mindful Tapping',
+        stats: [
+          GameStat(label: 'Tapped', value: '$_score'),
+          GameStat(label: 'Total Circles', value: '$_totalSpawned'),
+          GameStat(label: 'Stress Level', value: _stressLevel.label),
+        ],
+        onReturn: () => Navigator.pop(context),
+      );
+    }
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -250,6 +317,9 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
             children: [
               // App Bar
               _buildAppBar(),
+
+              // Timer (when playing)
+              if (_isPlaying) _buildTimer(),
 
               // Game Area
               Expanded(
@@ -269,6 +339,56 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildTimer() {
+    final progress = _timeRemaining / _gameDurationSeconds;
+    final isLowTime = _timeRemaining <= 30;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.sm,
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.timer,
+                size: 20,
+                color: isLowTime
+                    ? const Color(0xFFE89B9B)
+                    : AppColors.textSecondary,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                _formatTime(_timeRemaining),
+                style: AppTextStyles.h3.copyWith(
+                  color: isLowTime
+                      ? const Color(0xFFE89B9B)
+                      : AppColors.textPrimary,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: AppRadius.smBorder,
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: AppColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isLowTime ? const Color(0xFFE89B9B) : const Color(0xFF8FB996),
+              ),
+              minHeight: 6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -434,6 +554,16 @@ class _MindfulTappingScreenState extends State<MindfulTappingScreen>
             'Tap the circles as they appear',
             style: AppTextStyles.bodyMedium.copyWith(
               color: AppColors.textSecondary,
+            ),
+          ),
+
+          const SizedBox(height: AppSpacing.sm),
+
+          Text(
+            'Duration: 2 minutes',
+            style: AppTextStyles.bodySmall.copyWith(
+              color: AppColors.textHint,
+              fontWeight: FontWeight.w500,
             ),
           ),
 
