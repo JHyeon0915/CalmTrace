@@ -4,6 +4,7 @@ import '../services/auth_service.dart';
 import '../services/streak_service.dart';
 import '../services/goals_service.dart';
 import '../models/goal_model.dart';
+import '../models/daily_tip_model.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import '../widgets/streak_celebration_modal.dart';
 import '../widgets/set_goals_modal.dart';
@@ -32,9 +33,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<UserGoal> _dailyGoals = [];
   int _goalsCompleted = 0;
 
+  // Daily tip - gets set once based on today's date
+  late final DailyTip _todaysTip;
+
   @override
   void initState() {
     super.initState();
+    _todaysTip = DailyTips.getTodaysTip();
     _loadData();
   }
 
@@ -769,8 +774,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: const Color(0xFFFFF9E5),
                   borderRadius: AppRadius.smBorder,
                 ),
-                child: const Center(
-                  child: Text('💡', style: TextStyle(fontSize: 14)),
+                child: Center(
+                  child: Text(
+                    _todaysTip.emoji,
+                    style: const TextStyle(fontSize: 14),
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -781,25 +789,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Take a break from screens for 15 minutes.',
-            style: AppTextStyles.bodyMedium,
-          ),
+          Text(_todaysTip.description, style: AppTextStyles.bodyMedium),
           const SizedBox(height: AppSpacing.sm),
           RichText(
             text: TextSpan(
               style: AppTextStyles.bodySmall,
               children: [
                 TextSpan(
-                  text: 'Try this: ',
+                  text: '${_todaysTip.actionPrefix} ',
                   style: TextStyle(
-                    color: AppColors.stressLow,
+                    color: AppColors.primaryDark,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 TextSpan(
-                  text:
-                      'Digital overload contributes to mental fatigue and stress.',
+                  text: _todaysTip.actionText,
                   style: TextStyle(color: AppColors.textSecondary),
                 ),
               ],
