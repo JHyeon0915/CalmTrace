@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
+import 'game_completion_screen.dart';
 
 enum StressLevel { high, medium, low }
 
@@ -57,35 +58,17 @@ class CalmPuzzleScreen extends StatefulWidget {
   State<CalmPuzzleScreen> createState() => _CalmPuzzleScreenState();
 }
 
-class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
-    with SingleTickerProviderStateMixin {
+class _CalmPuzzleScreenState extends State<CalmPuzzleScreen> {
   StressLevel _stressLevel = StressLevel.medium;
   List<int> _pieces = [];
   int _moves = 0;
   bool _isComplete = false;
   int? _selectedIndex;
 
-  late AnimationController _completeAnimController;
-  late Animation<double> _completeAnimation;
-
   @override
   void initState() {
     super.initState();
-    _completeAnimController = AnimationController(
-      duration: const Duration(milliseconds: 500),
-      vsync: this,
-    );
-    _completeAnimation = CurvedAnimation(
-      parent: _completeAnimController,
-      curve: Curves.elasticOut,
-    );
     _shuffle();
-  }
-
-  @override
-  void dispose() {
-    _completeAnimController.dispose();
-    super.dispose();
   }
 
   void _shuffle() {
@@ -106,7 +89,6 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
       _isComplete = false;
       _selectedIndex = null;
     });
-    _completeAnimController.reset();
   }
 
   void _onStressLevelChanged(StressLevel level) {
@@ -123,20 +105,15 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
 
     setState(() {
       if (_selectedIndex == null) {
-        // First selection
         _selectedIndex = index;
       } else if (_selectedIndex == index) {
-        // Deselect
         _selectedIndex = null;
       } else {
-        // Swap pieces
         final temp = _pieces[_selectedIndex!];
         _pieces[_selectedIndex!] = _pieces[index];
         _pieces[index] = temp;
         _selectedIndex = null;
         _moves++;
-
-        // Check completion
         _checkCompletion();
       }
     });
@@ -155,7 +132,6 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
       setState(() {
         _isComplete = true;
       });
-      _completeAnimController.forward();
     }
   }
 
@@ -168,12 +144,22 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_isComplete) {
+      return GameCompletionScreen(
+        gameName: 'Calm Puzzle',
+        stats: [
+          GameStat(label: 'Moves', value: '$_moves'),
+          GameStat(label: 'Stress Level', value: _stressLevel.label),
+        ],
+        onReturn: () => Navigator.pop(context),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFE8F4F8),
       body: SafeArea(
         child: Column(
           children: [
-            // App Bar
             _buildAppBar(),
 
             // Test Mode Selector
@@ -196,13 +182,12 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Back button
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.background,
                 shape: BoxShape.circle,
               ),
@@ -236,7 +221,7 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
             child: Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: AppColors.background,
                 shape: BoxShape.circle,
               ),
@@ -270,10 +255,9 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
           Row(
             children: [
-              Icon(
+              const Icon(
                 Icons.monitor_heart_outlined,
                 size: 16,
                 color: AppColors.textSecondary,
@@ -367,45 +351,6 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Completion Message
-        if (_isComplete)
-          ScaleTransition(
-            scale: _completeAnimation,
-            child: Container(
-              margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.md,
-              ),
-              decoration: BoxDecoration(
-                color: const Color(0xFF7BC67E).withValues(alpha: 0.1),
-                borderRadius: AppRadius.lgBorder,
-                border: Border.all(
-                  color: const Color(0xFF7BC67E).withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.check_circle,
-                    color: Color(0xFF2F6B32),
-                    size: 20,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Puzzle Complete! Well done.',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: const Color(0xFF2F6B32),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-        // Puzzle Grid
         Container(
           padding: const EdgeInsets.all(AppSpacing.md),
           decoration: BoxDecoration(
@@ -421,10 +366,7 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
           ),
           child: _buildGrid(),
         ),
-
         const SizedBox(height: AppSpacing.lg),
-
-        // Instructions
         Text(
           'Tap pieces to swap and arrange them in order',
           style: AppTextStyles.bodyMedium.copyWith(
@@ -447,7 +389,6 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
         : gridSize == 4
         ? 280.0
         : 300.0;
-    final pieceSize = (puzzleSize - (gridSize - 1) * 8) / gridSize;
 
     return SizedBox(
       width: puzzleSize,
@@ -463,7 +404,6 @@ class _CalmPuzzleScreenState extends State<CalmPuzzleScreen>
         itemBuilder: (context, index) {
           final pieceValue = _pieces[index];
           final isSelected = _selectedIndex == index;
-          final isCorrect = pieceValue == index;
 
           return GestureDetector(
             onTap: () => _onPieceTap(index),

@@ -1,7 +1,13 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
+import '../services/streak_service.dart';
+import '../services/goals_service.dart';
+import '../models/goal_model.dart';
+import '../models/daily_tip_model.dart';
 import '../widgets/app_bottom_nav_bar.dart';
+import '../widgets/streak_celebration_modal.dart';
+import '../widgets/set_goals_modal.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
@@ -16,10 +22,216 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final _authService = AuthService();
+  final _streakService = StreakService();
+  final _goalsService = GoalsService();
+
   int _currentIndex = 0;
+  int _streakCount = 0;
+  bool _isLoading = true;
+
+  // Goals data
+  List<UserGoal> _dailyGoals = [];
+  int _goalsCompleted = 0;
+
+  // Daily tip - gets set once based on today's date
+  late final DailyTip _todaysTip;
+
+  @override
+  void initState() {
+    super.initState();
+    _todaysTip = DailyTips.getTodaysTip();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    await Future.wait([_loadStreakData(), _loadGoalsData()]);
+  }
+
+  Future<void> _loadStreakData() async {
+    try {
+      debugPrint('🔄 Loading streak data...');
+      final streak = await _streakService.checkAndUpdateStreak();
+      debugPrint('📊 Streak from API: $streak');
+
+      if (!mounted) return;
+
+      setState(() {
+        _streakCount = streak;
+        _isLoading = false;
+      });
+
+      // Show celebration if user has a streak and hasn't seen today's celebration
+      if (streak > 0) {
+        final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
+        debugPrint('👀 Has seen today celebration: $hasSeenToday');
+
+        if (!hasSeenToday && mounted) {
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (!mounted) return;
+
+          await _streakService.markCelebrationSeen();
+          _showCelebrationModal(streak, false);
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error loading streak: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _loadGoalsData() async {
+    try {
+      debugPrint('🎯 Loading goals data...');
+      final goalsData = await _goalsService.getDailyGoals();
+      debugPrint('📋 Goals loaded: ${goalsData.goals.length}');
+
+      if (!mounted) return;
+
+      setState(() {
+        _dailyGoals = goalsData.goals;
+        _goalsCompleted = goalsData.completedCount;
+      });
+    } catch (e) {
+      debugPrint('❌ Error loading goals: $e');
+    }
+  }
+
+  void _showCelebrationModal(int streakCount, bool isNewStreak) {
+    if (!mounted) return;
+
+    StreakCelebrationModal.show(
+      context,
+      streakCount: streakCount,
+      isNewStreak: isNewStreak,
+    );
+  }
+
+  Future<void> _showSetGoalsModal() async {
+    final currentGoalTypes = _dailyGoals.map((g) => g.goalType).toList();
+
+    final selectedGoals = await SetGoalsModal.show(
+      context,
+      initialSelectedGoals: currentGoalTypes,
+      maxGoals: 2,
+    );
+
+    if (selectedGoals != null && selectedGoals.isNotEmpty && mounted) {
+      debugPrint('💾 Saving goals: $selectedGoals');
+
+      try {
+        final goalsData = await _goalsService.setDailyGoals(selectedGoals);
+
+        if (mounted) {
+          setState(() {
+            _dailyGoals = goalsData.goals;
+            _goalsCompleted = goalsData.completedCount;
+          });
+        }
+      } catch (e) {
+        debugPrint('❌ Error saving goals: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Failed to save goals. Please try again.'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    }
+  }
 
   void _onNavTap(int index) {
     setState(() => _currentIndex = index);
+  }
+
+  Future<void> _onGoalTap(UserGoal goal) async {
+    final goalOption = goal.goalOption;
+    if (goalOption == null) return;
+
+    // Navigate based on goal destination
+    bool? completed;
+
+    switch (goalOption.destination) {
+      case GoalDestination.breathing:
+        completed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const GuidedBreathingScreen(),
+          ),
+        );
+        break;
+
+      case GoalDestination.tracking:
+        // Navigate to tracking page (index 1 in bottom nav)
+        setState(() => _currentIndex = 1);
+        completed = true;
+        break;
+
+      case GoalDestination.therapy:
+        // Navigate to therapy hub (index 2 in bottom nav)
+        setState(() => _currentIndex = 2);
+        completed = true;
+        break;
+
+      case GoalDestination.games:
+        // Navigate to games (index 3 in bottom nav)
+        setState(() => _currentIndex = 3);
+        completed = true;
+        break;
+
+      case GoalDestination.chat:
+        // TODO: Navigate to AI Coach chat
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('AI Coach coming soon!')),
+          );
+        }
+        return;
+    }
+
+    // Complete the goal if navigation was successful
+    if (completed == true && !goal.isCompleted) {
+      await _completeGoal(goal.goalType);
+    }
+  }
+
+  Future<void> _completeGoal(String goalType) async {
+    try {
+      debugPrint('🎯 Completing goal: $goalType');
+      final result = await _goalsService.completeGoal(goalType);
+      debugPrint(
+        '📊 Goal complete result - progress: ${result.dailyProgress}/${result.totalGoals}',
+      );
+
+      if (!mounted) return;
+
+      // Reload goals to get updated completion status
+      await _loadGoalsData();
+
+      // Update streak if needed
+      if (result.streakUpdated && result.streakData != null) {
+        setState(() {
+          _streakCount = result.streakData!.streakCount;
+        });
+
+        // Show celebration if needed
+        if (result.streakData!.shouldCelebrate) {
+          final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
+          if (!hasSeenToday && mounted) {
+            await _streakService.markCelebrationSeen();
+            _showCelebrationModal(
+              result.streakData!.streakCount,
+              result.streakData!.isNewStreak,
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error completing goal: $e');
+    }
   }
 
   @override
@@ -119,21 +331,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildStatsRow() {
+    final totalGoals = _dailyGoals.isNotEmpty ? _dailyGoals.length : 2;
+
     return Row(
       children: [
         Expanded(
-          child: _buildStatCard(
-            icon: '🔥',
-            value: '5',
-            label: 'Day Streak',
-            backgroundColor: const Color(0xFFFFF4E5),
+          child: GestureDetector(
+            onTap: () {
+              if (_streakCount > 0) {
+                _showCelebrationModal(_streakCount, false);
+              }
+            },
+            child: _buildStatCard(
+              icon: '🔥',
+              value: _isLoading ? '-' : '$_streakCount',
+              label: 'Day Streak',
+              backgroundColor: const Color(0xFFFFF4E5),
+            ),
           ),
         ),
         const SizedBox(width: AppSpacing.md),
         Expanded(
           child: _buildStatCard(
             icon: '🏆',
-            value: '1/2',
+            value: '$_goalsCompleted/$totalGoals',
             label: 'Daily Goals',
             backgroundColor: const Color(0xFFFFF9E5),
           ),
@@ -338,7 +559,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             TextButton(
-              onPressed: () {},
+              onPressed: _showSetGoalsModal,
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
                 minimumSize: Size.zero,
@@ -355,30 +576,138 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(height: AppSpacing.md),
-        _buildGoalItem(
-          icon: Icons.air,
-          title: 'Practice Breathing',
-          iconColor: AppColors.primary,
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const GuidedBreathingScreen(),
+
+        // Dynamic goals list
+        if (_dailyGoals.isEmpty)
+        // Show default goals if none set
+        ...[
+          _buildDefaultGoalItem(
+            icon: Icons.air,
+            title: 'Practice Breathing',
+            iconColor: AppColors.primary,
+            onTap: () async {
+              final result = await Navigator.push<bool>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const GuidedBreathingScreen(),
+                ),
+              );
+              if (result == true) {
+                _completeGoal('breathing');
+              }
+            },
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _buildDefaultGoalItem(
+            icon: Icons.show_chart,
+            title: 'Check Stress Levels',
+            iconColor: AppColors.warning,
+            onTap: () {
+              setState(() => _currentIndex = 1);
+              _completeGoal('stress_check');
+            },
+          ),
+        ] else
+          // Show user's selected goals
+          ..._dailyGoals.asMap().entries.map((entry) {
+            final index = entry.key;
+            final goal = entry.value;
+            final goalOption = goal.goalOption;
+
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: index < _dailyGoals.length - 1 ? AppSpacing.sm : 0,
+              ),
+              child: _buildGoalItem(
+                goal: goal,
+                goalOption: goalOption,
+                onTap: () => _onGoalTap(goal),
               ),
             );
-          },
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        _buildGoalItem(
-          icon: Icons.show_chart,
-          title: 'Check Stress Levels',
-          iconColor: AppColors.warning,
-        ),
+          }),
       ],
     );
   }
 
   Widget _buildGoalItem({
+    required UserGoal goal,
+    required GoalOption? goalOption,
+    required VoidCallback onTap,
+  }) {
+    final icon = goalOption?.icon ?? Icons.check_circle_outline;
+    final iconColor = goalOption?.iconColor ?? AppColors.primary;
+    final title = goalOption?.title ?? goal.title;
+
+    return GestureDetector(
+      onTap: goal.isCompleted ? null : onTap,
+      child: Container(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        decoration: BoxDecoration(
+          color: goal.isCompleted
+              ? AppColors.success.withValues(alpha: 0.05)
+              : AppColors.background,
+          borderRadius: AppRadius.mdBorder,
+          border: Border.all(
+            color: goal.isCompleted ? AppColors.success : AppColors.border,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: goal.isCompleted
+                    ? AppColors.success.withValues(alpha: 0.1)
+                    : iconColor.withValues(alpha: 0.1),
+                borderRadius: AppRadius.smBorder,
+              ),
+              child: Icon(
+                goal.isCompleted ? Icons.check : icon,
+                color: goal.isCompleted ? AppColors.success : iconColor,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      fontWeight: FontWeight.w500,
+                      decoration: goal.isCompleted
+                          ? TextDecoration.lineThrough
+                          : null,
+                      color: goal.isCompleted
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
+                    ),
+                  ),
+                  if (goal.isCompleted)
+                    Text(
+                      'Completed',
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.success,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (!goal.isCompleted)
+              const Icon(
+                Icons.chevron_right,
+                color: AppColors.textSecondary,
+                size: 20,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDefaultGoalItem({
     required IconData icon,
     required String title,
     required Color iconColor,
@@ -414,7 +743,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ),
             if (onTap != null)
-              Icon(
+              const Icon(
                 Icons.chevron_right,
                 color: AppColors.textSecondary,
                 size: 20,
@@ -445,8 +774,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: const Color(0xFFFFF9E5),
                   borderRadius: AppRadius.smBorder,
                 ),
-                child: const Center(
-                  child: Text('💡', style: TextStyle(fontSize: 14)),
+                child: Center(
+                  child: Text(
+                    _todaysTip.emoji,
+                    style: const TextStyle(fontSize: 14),
+                  ),
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -457,25 +789,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Take a break from screens for 15 minutes.',
-            style: AppTextStyles.bodyMedium,
-          ),
+          Text(_todaysTip.description, style: AppTextStyles.bodyMedium),
           const SizedBox(height: AppSpacing.sm),
           RichText(
             text: TextSpan(
               style: AppTextStyles.bodySmall,
               children: [
                 TextSpan(
-                  text: 'Try this: ',
+                  text: '${_todaysTip.actionPrefix} ',
                   style: TextStyle(
-                    color: AppColors.stressLow,
+                    color: AppColors.primaryDark,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
                 TextSpan(
-                  text:
-                      'Digital overload contributes to mental fatigue and stress.',
+                  text: _todaysTip.actionText,
                   style: TextStyle(color: AppColors.textSecondary),
                 ),
               ],

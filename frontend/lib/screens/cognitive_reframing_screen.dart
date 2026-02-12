@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
+import 'acitivity_completion_screen.dart';
 
 class CognitiveReframingScreen extends StatefulWidget {
   const CognitiveReframingScreen({super.key});
@@ -7,216 +8,6 @@ class CognitiveReframingScreen extends StatefulWidget {
   @override
   State<CognitiveReframingScreen> createState() =>
       _CognitiveReframingScreenState();
-}
-
-class _CompletionScreen extends StatefulWidget {
-  final VoidCallback onReturn;
-
-  const _CompletionScreen({required this.onReturn});
-
-  @override
-  State<_CompletionScreen> createState() => _CompletionScreenState();
-}
-
-class _CompletionScreenState extends State<_CompletionScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _iconController;
-  late AnimationController _contentController;
-  late Animation<double> _iconScaleAnimation;
-  late Animation<double> _iconFadeAnimation;
-  late Animation<double> _titleFadeAnimation;
-  late Animation<Offset> _titleSlideAnimation;
-  late Animation<double> _subtitleFadeAnimation;
-  late Animation<Offset> _subtitleSlideAnimation;
-  late Animation<double> _buttonFadeAnimation;
-  late Animation<Offset> _buttonSlideAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-
-    // Icon animation controller
-    _iconController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    // Content animation controller (for staggered text and button)
-    _contentController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    // Icon animations
-    _iconScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _iconController, curve: Curves.elasticOut),
-    );
-
-    _iconFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _iconController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
-    );
-
-    // Title animations
-    _titleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
-    );
-
-    _titleSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-          ),
-        );
-
-    // Subtitle animations
-    _subtitleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-      ),
-    );
-
-    _subtitleSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-          ),
-        );
-
-    // Button animations
-    _buttonFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-      ),
-    );
-
-    _buttonSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-          ),
-        );
-
-    // Start animations
-    _iconController.forward().then((_) {
-      _contentController.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _iconController.dispose();
-    _contentController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Animated icon
-                FadeTransition(
-                  opacity: _iconFadeAnimation,
-                  child: ScaleTransition(
-                    scale: _iconScaleAnimation,
-                    child: Container(
-                      width: 120,
-                      height: 120,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF8FB996).withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle_outline,
-                        color: Color(0xFF8FB996),
-                        size: 64,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-
-                // Animated title
-                SlideTransition(
-                  position: _titleSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _titleFadeAnimation,
-                    child: Text('Well Done!', style: AppTextStyles.h2),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-
-                // Animated subtitle
-                SlideTransition(
-                  position: _subtitleSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _subtitleFadeAnimation,
-                    child: Text(
-                      "You've practiced reframing a negative thought. This skill gets easier with practice.",
-                      textAlign: TextAlign.center,
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-
-                // Animated button
-                SlideTransition(
-                  position: _buttonSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _buttonFadeAnimation,
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: widget.onReturn,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            vertical: AppSpacing.md,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: AppRadius.mdBorder,
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Return to Therapy Hub',
-                          style: AppTextStyles.bodyLarge.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 class _CognitiveReframingScreenState extends State<CognitiveReframingScreen> {
@@ -287,7 +78,11 @@ class _CognitiveReframingScreenState extends State<CognitiveReframingScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isCompleted) {
-      return _buildCompletionScreen();
+      return ActivityCompletionScreen(
+        config: CompletionConfig.cognitiveReframing,
+        activityType: ActivityType.therapy,
+        onReturn: () => Navigator.pop(context, true),
+      );
     }
 
     return Scaffold(
@@ -302,7 +97,7 @@ class _CognitiveReframingScreenState extends State<CognitiveReframingScreen> {
               Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.pop(context),
+                    onTap: () => Navigator.pop(context, false),
                     child: Container(
                       width: 40,
                       height: 40,
@@ -499,7 +294,7 @@ class _CognitiveReframingScreenState extends State<CognitiveReframingScreen> {
                 : null,
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
-              disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
+              disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.5),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
               shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
@@ -525,10 +320,6 @@ class _CognitiveReframingScreenState extends State<CognitiveReframingScreen> {
         ),
       ],
     );
-  }
-
-  Widget _buildCompletionScreen() {
-    return _CompletionScreen(onReturn: () => Navigator.pop(context));
   }
 }
 

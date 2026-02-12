@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../constants/app_constants.dart';
+import 'game_completion_screen.dart';
 
 enum RhythmStressLevel { high, medium, low }
 
@@ -125,9 +126,9 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     with TickerProviderStateMixin {
   RhythmStressLevel _stressLevel = RhythmStressLevel.medium;
   bool _isPlaying = false;
+  bool _isComplete = false;
   int _score = 0;
   int _streak = 0;
-  int _beatCount = 0;
   int? _activeButton;
   Timer? _beatTimer;
   final Random _random = Random();
@@ -136,6 +137,13 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isMusicPlaying = false;
   bool _isMusicEnabled = true;
+
+  // Song duration tracking
+  Duration _songDuration = Duration.zero;
+  Duration _songPosition = Duration.zero;
+  StreamSubscription? _positionSubscription;
+  StreamSubscription? _durationSubscription;
+  StreamSubscription? _completionSubscription;
 
   // Animation controller for active button
   AnimationController? _pulseController;
@@ -156,8 +164,35 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   }
 
   void _setupAudioPlayer() {
-    _audioPlayer.setReleaseMode(ReleaseMode.loop);
+    _audioPlayer.setReleaseMode(
+      ReleaseMode.stop,
+    ); // Don't loop - end when song finishes
     _audioPlayer.setVolume(0.5);
+
+    // Listen for song position
+    _positionSubscription = _audioPlayer.onPositionChanged.listen((position) {
+      if (mounted) {
+        setState(() {
+          _songPosition = position;
+        });
+      }
+    });
+
+    // Listen for song duration
+    _durationSubscription = _audioPlayer.onDurationChanged.listen((duration) {
+      if (mounted) {
+        setState(() {
+          _songDuration = duration;
+        });
+      }
+    });
+
+    // Listen for song completion - END THE GAME
+    _completionSubscription = _audioPlayer.onPlayerComplete.listen((_) {
+      if (mounted && _isPlaying) {
+        _endGame();
+      }
+    });
   }
 
   void _setupPulseAnimation() {
@@ -174,6 +209,9 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   void dispose() {
     _beatTimer?.cancel();
     _pulseController?.dispose();
+    _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _completionSubscription?.cancel();
     _audioPlayer.stop();
     _audioPlayer.dispose();
     super.dispose();
@@ -182,10 +220,25 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   void _startGame() {
     setState(() {
       _isPlaying = true;
+      _isComplete = false;
       _activeButton = null;
+      _score = 0;
+      _streak = 0;
+      _songPosition = Duration.zero;
+      _songDuration = Duration.zero;
     });
     _startBeatLoop();
     _playMusic();
+  }
+
+  void _endGame() {
+    _beatTimer?.cancel();
+    _audioPlayer.stop();
+    setState(() {
+      _isPlaying = false;
+      _isComplete = true;
+      _isMusicPlaying = false;
+    });
   }
 
   Future<void> _playMusic() async {
@@ -225,10 +278,12 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     _stopMusic();
     setState(() {
       _isPlaying = false;
+      _isComplete = false;
       _score = 0;
       _streak = 0;
-      _beatCount = 0;
       _activeButton = null;
+      _songPosition = Duration.zero;
+      _songDuration = Duration.zero;
     });
   }
 
@@ -256,7 +311,6 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
 
     setState(() {
       _activeButton = nextButton;
-      _beatCount++;
     });
 
     // Start pulse animation
@@ -335,8 +389,26 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     );
   }
 
+  String _formatDuration(Duration duration) {
+    final mins = duration.inMinutes;
+    final secs = duration.inSeconds % 60;
+    return '$mins:${secs.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Show game completion screen when song completes
+    if (_isComplete) {
+      return GameCompletionScreen(
+        gameName: 'Rhythm Flow',
+        stats: [
+          GameStat(label: 'Score', value: '$_score'),
+          GameStat(label: 'Stress Level', value: _stressLevel.label),
+        ],
+        onReturn: () => Navigator.pop(context),
+      );
+    }
+
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -358,7 +430,10 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
               const SizedBox(height: AppSpacing.md),
 
               // Stress Level Selector (only when not playing)
-              if (!_isPlaying) _buildStressLevelSelector(),
+              if (!_isPlaying && !_isComplete) _buildStressLevelSelector(),
+
+              // Song Progress (when playing)
+              if (_isPlaying) _buildSongProgress(),
 
               // Game Area
               Expanded(child: _buildGameArea()),
@@ -370,6 +445,63 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSongProgress() {
+    final progress = _songDuration.inMilliseconds > 0
+        ? _songPosition.inMilliseconds / _songDuration.inMilliseconds
+        : 0.0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.sm,
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _formatDuration(_songPosition),
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              Row(
+                children: [
+                  Icon(Icons.music_note, size: 16, color: _stressLevel.color),
+                  const SizedBox(width: 4),
+                  Text(
+                    _stressLevel.tempoLabel,
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: _stressLevel.color,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                _formatDuration(_songDuration),
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          ClipRRect(
+            borderRadius: AppRadius.smBorder,
+            child: LinearProgressIndicator(
+              value: progress,
+              backgroundColor: AppColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(_stressLevel.color),
+              minHeight: 6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -415,7 +547,7 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    'Beat: $_beatCount',
+                    'Score: $_score',
                     style: AppTextStyles.bodySmall.copyWith(
                       color: AppColors.textSecondary,
                     ),
@@ -624,16 +756,6 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const SizedBox(height: AppSpacing.lg),
-
-          // Score Display
-          if (_isPlaying)
-            Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-              child: Text(
-                'Score: $_score',
-                style: AppTextStyles.h3.copyWith(color: AppColors.textPrimary),
-              ),
-            ),
 
           // 2x2 Button Grid
           Padding(

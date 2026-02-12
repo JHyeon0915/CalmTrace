@@ -12,7 +12,7 @@ class TherapyHubScreen extends StatelessWidget {
     final therapies = [
       TherapyItem(
         title: 'Guided Breathing',
-        description: 'Regulate your nervous system with paced breathing.',
+        description: 'Regulate your system with paced breathing.',
         time: '1-3 min',
         icon: Icons.air,
         color: const Color(0xFF6B9BD1),
@@ -52,21 +52,16 @@ class TherapyHubScreen extends StatelessWidget {
           const SizedBox(height: AppSpacing.lg),
           Text('Therapy Hub', style: AppTextStyles.h2),
           const SizedBox(height: 4),
-          Text(
-            'Choose a technique to relax',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
+          Text('Choose a technique to relax', style: AppTextStyles.bodyMedium),
           const SizedBox(height: AppSpacing.lg),
           GridView.builder(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
-              crossAxisSpacing: AppSpacing.md,
-              mainAxisSpacing: AppSpacing.md,
-              childAspectRatio: 0.85,
+              crossAxisSpacing: AppSpacing.sm,
+              mainAxisSpacing: AppSpacing.sm,
+              childAspectRatio: 0.75,
             ),
             itemCount: therapies.length,
             itemBuilder: (context, index) {
@@ -143,34 +138,39 @@ class TherapyCard extends StatelessWidget {
           border: Border.all(color: AppColors.border),
         ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: therapy.color.withValues(alpha: 0.15),
-                borderRadius: AppRadius.mdBorder,
-              ),
-              child: Icon(therapy.icon, color: therapy.color, size: 24),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: therapy.color.withValues(alpha: 0.15),
+                    borderRadius: AppRadius.mdBorder,
+                  ),
+                  child: Icon(therapy.icon, color: therapy.color, size: 24),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  therapy.title,
+                  style: AppTextStyles.bodyLarge.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  therapy.description,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
-            const Spacer(),
-            Text(
-              therapy.title,
-              style: AppTextStyles.bodyLarge.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              therapy.description,
-              style: AppTextStyles.bodySmall.copyWith(
-                color: AppColors.textSecondary,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: AppSpacing.sm),
             Text(
               therapy.time,
               style: AppTextStyles.labelSmall.copyWith(

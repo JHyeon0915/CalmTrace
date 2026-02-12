@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
+import 'acitivity_completion_screen.dart';
 
 class MindfulnessScreen extends StatefulWidget {
   const MindfulnessScreen({super.key});
@@ -81,14 +82,18 @@ class _MindfulnessScreenState extends State<MindfulnessScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isComplete) {
-      return _CompletionScreen(onReturn: () => Navigator.pop(context));
+      return ActivityCompletionScreen(
+        config: CompletionConfig.mindfulness,
+        activityType: ActivityType.therapy,
+        onReturn: () => Navigator.pop(context, true),
+      );
     }
 
     if (_showReflection) {
       return _ReflectionScreen(
         controller: _reflectionController,
         onComplete: _completeReflection,
-        onBack: () => Navigator.pop(context),
+        onBack: () => Navigator.pop(context, false),
       );
     }
 
@@ -101,7 +106,7 @@ class _MindfulnessScreenState extends State<MindfulnessScreen> {
       onFinish: _finishExercise,
       onBack: () {
         _stepTimer?.cancel();
-        Navigator.pop(context);
+        Navigator.pop(context, false);
       },
     );
   }
@@ -452,215 +457,6 @@ class _ReflectionScreen extends StatelessWidget {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// Completion Screen with animations
-class _CompletionScreen extends StatefulWidget {
-  final VoidCallback onReturn;
-
-  const _CompletionScreen({required this.onReturn});
-
-  @override
-  State<_CompletionScreen> createState() => _CompletionScreenState();
-}
-
-class _CompletionScreenState extends State<_CompletionScreen>
-    with TickerProviderStateMixin {
-  late AnimationController _iconController;
-  late AnimationController _contentController;
-  late Animation<double> _iconScaleAnimation;
-  late Animation<double> _iconFadeAnimation;
-  late Animation<double> _titleFadeAnimation;
-  late Animation<Offset> _titleSlideAnimation;
-  late Animation<double> _subtitleFadeAnimation;
-  late Animation<Offset> _subtitleSlideAnimation;
-  late Animation<double> _buttonFadeAnimation;
-  late Animation<Offset> _buttonSlideAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _iconController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-
-    _contentController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-
-    _iconScaleAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _iconController, curve: Curves.elasticOut),
-    );
-
-    _iconFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _iconController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
-    );
-
-    _titleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-      ),
-    );
-
-    _titleSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
-          ),
-        );
-
-    _subtitleFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-      ),
-    );
-
-    _subtitleSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.2, 0.7, curve: Curves.easeOut),
-          ),
-        );
-
-    _buttonFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _contentController,
-        curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-      ),
-    );
-
-    _buttonSlideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _contentController,
-            curve: const Interval(0.4, 1.0, curve: Curves.easeOut),
-          ),
-        );
-
-    _iconController.forward().then((_) {
-      _contentController.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _iconController.dispose();
-    _contentController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Animated icon
-                FadeTransition(
-                  opacity: _iconFadeAnimation,
-                  child: ScaleTransition(
-                    scale: _iconScaleAnimation,
-                    child: Container(
-                      width: 100,
-                      height: 100,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF8FB996).withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.check_circle_outline,
-                        color: Color(0xFF8FB996),
-                        size: 56,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-
-                // Animated title
-                SlideTransition(
-                  position: _titleSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _titleFadeAnimation,
-                    child: Text('Well Done!', style: AppTextStyles.h2),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-
-                // Animated subtitle
-                SlideTransition(
-                  position: _subtitleSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _subtitleFadeAnimation,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.lg,
-                      ),
-                      child: Text(
-                        "You've completed a grounding exercise. Take this calm feeling with you.",
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.bodyMedium.copyWith(
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.xl),
-
-                // Animated button
-                SlideTransition(
-                  position: _buttonSlideAnimation,
-                  child: FadeTransition(
-                    opacity: _buttonFadeAnimation,
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: widget.onReturn,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            vertical: AppSpacing.md,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: AppRadius.mdBorder,
-                          ),
-                          elevation: 0,
-                        ),
-                        child: Text(
-                          'Return to Therapy Hub',
-                          style: AppTextStyles.bodyLarge.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ),
