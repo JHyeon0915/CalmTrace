@@ -23,7 +23,7 @@ extension DeviceFeedbackTypeExtension on DeviceFeedbackType {
   String get subtitle {
     switch (this) {
       case DeviceFeedbackType.vibration:
-        return 'Haptic feedback only';
+        return 'Haptic feedback';
       case DeviceFeedbackType.ring:
         return 'Sound notification';
       case DeviceFeedbackType.notification:
