@@ -12,6 +12,7 @@ import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
 import 'guided_breathing_screen.dart';
+import 'tracking_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -251,7 +252,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case 0:
         return _buildHomeContent();
       case 1:
-        return _buildPlaceholder('Tracking');
+        return const TrackingScreen();
       case 2:
         return const TherapyHubScreen();
       case 3:
@@ -297,12 +298,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Text('Hi, $name', style: AppTextStyles.h2),
             const SizedBox(height: 4),
-            Text(
-              'Ready to find your calm?',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
+            Text('Ready to find your calm?', style: AppTextStyles.bodyMedium),
           ],
         ),
         GestureDetector(
