@@ -45,5 +45,15 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Health Permissions -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>CalmTrace needs access to your health data to monitor stress levels using HRV and respiratory rate.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>CalmTrace needs to write health data.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+  		<string>processing</string>
+	</array>
 </dict>
 </plist>
