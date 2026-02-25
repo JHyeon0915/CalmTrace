@@ -13,6 +13,8 @@ import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
 import 'guided_breathing_screen.dart';
 import 'tracking_screen.dart';
+import '../services/stress_prediction_service.dart';
+import 'package:flutter/foundation.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -810,25 +812,236 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // Widget _buildEncouragement() {
+  //   return Center(
+  //     child: Row(
+  //       mainAxisSize: MainAxisSize.min,
+  //       children: [
+  //         Text(
+  //           "You're doing great today! ",
+  //           style: AppTextStyles.bodyMedium.copyWith(
+  //             color: AppColors.stressLow,
+  //             fontWeight: FontWeight.w500,
+  //           ),
+  //         ),
+  //         const Text('🌱', style: TextStyle(fontSize: 16)),
+  //       ],
+  //     ),
+  //   );
+  // }
+
   Widget _buildEncouragement() {
-    return Center(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    return Column(
+      children: [
+        Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                "You're doing great today! ",
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.stressLow,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const Text('🌱', style: TextStyle(fontSize: 16)),
+            ],
+          ),
+        ),
+
+        // Debug: Test ML Model Button
+        if (kDebugMode) ...[
+          const SizedBox(height: AppSpacing.lg),
+          _buildTestMLButton(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildTestMLButton() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0F0),
+        borderRadius: AppRadius.mdBorder,
+        border: Border.all(color: const Color(0xFFFFCCCC)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            "You're doing great today! ",
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.stressLow,
-              fontWeight: FontWeight.w500,
+          Row(
+            children: [
+              Icon(Icons.bug_report, color: Colors.red[400], size: 18),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                'Debug: ML Model Test',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: Colors.red[400],
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _testMLPrediction,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6B9BD1),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Test Stress Prediction'),
             ),
           ),
-          const Text('🌱', style: TextStyle(fontSize: 16)),
         ],
       ),
     );
   }
 
-  Widget _buildPlaceholder(String title) {
-    return Center(child: Text('$title Screen', style: AppTextStyles.h3));
+  Future<void> _testMLPrediction() async {
+    debugPrint('');
+    debugPrint(
+      '╔════════════════════════════════════════════════════════════╗',
+    );
+    debugPrint(
+      '║              ML STRESS PREDICTION TEST                     ║',
+    );
+    debugPrint(
+      '╚════════════════════════════════════════════════════════════╝',
+    );
+    debugPrint('');
+
+    final stressService = StressPredictionService();
+
+    // Step 1: Check model status
+    debugPrint('📍 Step 1: Checking model status...');
+    final status = await stressService.getModelStatus();
+    debugPrint('   Models loaded: ${status.modelsLoaded}');
+    debugPrint('   Available models: ${status.availableModels}');
+    debugPrint('');
+
+    // Step 2: Generate mock health data
+    debugPrint('📍 Step 2: Generating mock health data...');
+
+    // Simulate Garmin smartwatch data
+    final mockHrvValues = <double>[
+      45.2,
+      48.1,
+      42.3,
+      50.5,
+      47.8,
+      44.2,
+      46.9,
+      49.1,
+      43.5,
+      47.2,
+    ];
+    final mockRrValues = <double>[
+      14.5,
+      15.2,
+      14.8,
+      15.0,
+      14.7,
+      15.1,
+      14.6,
+      14.9,
+      15.3,
+      14.8,
+    ];
+    final mockHrValues = <double>[72, 75, 71, 73, 74, 76, 70, 72, 74, 73];
+
+    debugPrint('   HRV values: $mockHrvValues');
+    debugPrint('   RR values: $mockRrValues');
+    debugPrint('   HR values: $mockHrValues');
+    debugPrint('');
+
+    // Step 3: Make prediction
+    debugPrint('📍 Step 3: Calling ML API...');
+
+    try {
+      final prediction = await stressService.predictStress(
+        hrvValues: mockHrvValues,
+        rrValues: mockRrValues,
+        hrValues: mockHrValues,
+      );
+
+      debugPrint('');
+      debugPrint('✅ PREDICTION RESULT:');
+      debugPrint('   ┌─────────────────────────────────────');
+      debugPrint('   │ Stress Level: ${prediction.stressLevel}/100');
+      debugPrint('   │ Stress Class: ${prediction.stressClass}');
+      debugPrint('   │ Stress Label: ${prediction.stressLabel}');
+      debugPrint('   │ Confidence: ${prediction.confidence}%');
+      debugPrint('   │ Model Used: ${prediction.modelUsed}');
+      debugPrint('   │ Data Sources: ${prediction.dataSources.activeSources}');
+      debugPrint('   │ Timestamp: ${prediction.timestamp}');
+      debugPrint('   └─────────────────────────────────────');
+      debugPrint('');
+
+      // Show snackbar with result
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '✅ Stress: ${prediction.stressLevel}% (${prediction.stressLabel}) - Confidence: ${prediction.confidence}%',
+            ),
+            backgroundColor: prediction.isLowStress
+                ? AppColors.success
+                : prediction.isMediumStress
+                ? AppColors.warning
+                : AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('');
+      debugPrint('❌ PREDICTION ERROR: $e');
+      debugPrint('');
+
+      // Try mock prediction as fallback
+      debugPrint('📍 Step 4: Trying mock prediction...');
+      try {
+        final mockPrediction = await stressService.mockPredict(
+          stressLevel: 35,
+          confidence: 92,
+        );
+
+        debugPrint('');
+        debugPrint('✅ MOCK PREDICTION RESULT:');
+        debugPrint('   Stress Level: ${mockPrediction.stressLevel}');
+        debugPrint('   Label: ${mockPrediction.stressLabel}');
+        debugPrint('');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '⚠️ Used mock: Stress ${mockPrediction.stressLevel}% (${mockPrediction.stressLabel})',
+              ),
+              backgroundColor: AppColors.warning,
+            ),
+          );
+        }
+      } catch (e2) {
+        debugPrint('❌ Mock prediction also failed: $e2');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ ML Error: $e'),
+              backgroundColor: AppColors.error,
+            ),
+          );
+        }
+      }
+    }
+
+    debugPrint('');
+    debugPrint('════════════════════════════════════════════════════════════');
+    debugPrint('');
   }
 }
