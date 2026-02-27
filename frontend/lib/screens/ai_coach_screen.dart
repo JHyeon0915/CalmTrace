@@ -1,36 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
-
-/// Message model for chat
-class ChatMessage {
-  final String id;
-  final String text;
-  final bool isUser;
-  final DateTime timestamp;
-
-  ChatMessage({
-    required this.id,
-    required this.text,
-    required this.isUser,
-    DateTime? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now();
-}
-
-/// Quick choice option
-class QuickChoice {
-  final String id;
-  final String label;
-  final IconData icon;
-  final Color color;
-
-  const QuickChoice({
-    required this.id,
-    required this.label,
-    required this.icon,
-    required this.color,
-  });
-}
+import '../services/ai_coach_service.dart';
 
 class AICoachScreen extends StatefulWidget {
   const AICoachScreen({super.key});
@@ -43,44 +14,51 @@ class _AICoachScreenState extends State<AICoachScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  final AICoachService _aiService = AICoachService();
 
-  List<ChatMessage> _messages = [];
+  List<AIChatMessage> _messages = [];
+  List<QuickResponse> _quickResponses = [];
   bool _isTyping = false;
   bool _showChoices = true;
-
-  final List<QuickChoice> _quickChoices = const [
-    QuickChoice(
-      id: 'breathing',
-      label: 'Breathing Exercise',
-      icon: Icons.air,
-      color: Color(0xFF6B9BD1),
-    ),
-    QuickChoice(
-      id: 'grounding',
-      label: 'Grounding Technique',
-      icon: Icons.local_florist,
-      color: Color(0xFF8FB996),
-    ),
-    QuickChoice(
-      id: 'reflection',
-      label: 'Reflection & Talk',
-      icon: Icons.chat_bubble_outline,
-      color: Color(0xFFB4A7D6),
-    ),
-  ];
+  bool _isLoading = true;
+  bool _aiAvailable = false;
+  int? _currentStressLevel;
 
   @override
   void initState() {
     super.initState();
-    // Initial AI greeting
-    _messages = [
-      ChatMessage(
-        id: '1',
-        text:
-            "Hello, I'm your stress support coach. I'm here to help you explore techniques that might work for you. What would you like to try?",
-        isUser: false,
-      ),
-    ];
+    _initializeChat();
+  }
+
+  Future<void> _initializeChat() async {
+    try {
+      final status = await _aiService.getStatus();
+
+      if (mounted) {
+        setState(() {
+          _aiAvailable = status.available;
+          _quickResponses = status.quickResponses;
+          _messages = [
+            AIChatMessage(role: 'assistant', content: status.greeting),
+          ];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error initializing chat: $e');
+      if (mounted) {
+        setState(() {
+          _messages = [
+            AIChatMessage(
+              role: 'assistant',
+              content:
+                  "Hello! I'm your stress support coach. I'm here to help you explore techniques that might work for you. What would you like to try?",
+            ),
+          ];
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -103,24 +81,20 @@ class _AICoachScreenState extends State<AICoachScreen> {
     });
   }
 
-  void _handleChoiceTap(QuickChoice choice) {
+  void _handleQuickChoice(QuickResponse choice) {
     setState(() => _showChoices = false);
-    _sendMessage(choice.label);
+    _sendMessage(choice.message);
   }
 
-  void _sendMessage([String? text]) {
+  Future<void> _sendMessage([String? text]) async {
     final messageText = text ?? _textController.text.trim();
     if (messageText.isEmpty) return;
 
     // Add user message
+    final userMessage = AIChatMessage(role: 'user', content: messageText);
+
     setState(() {
-      _messages.add(
-        ChatMessage(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          text: messageText,
-          isUser: true,
-        ),
-      );
+      _messages.add(userMessage);
       _isTyping = true;
       _showChoices = false;
     });
@@ -128,50 +102,46 @@ class _AICoachScreenState extends State<AICoachScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    // Simulate AI response
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
+    try {
+      // Build conversation history (exclude the message we just added)
+      final history = _messages
+          .where((m) => m != userMessage)
+          .map((m) => AIChatMessage(role: m.role, content: m.content))
+          .toList();
 
-      final response = _generateResponse(messageText);
+      // Call AI API
+      final response = await _aiService.sendMessage(
+        message: messageText,
+        conversationHistory: history,
+        stressLevel: _currentStressLevel,
+      );
+
+      if (!mounted) return;
 
       setState(() {
         _messages.add(
-          ChatMessage(
-            id: (DateTime.now().millisecondsSinceEpoch + 1).toString(),
-            text: response,
-            isUser: false,
+          AIChatMessage(role: 'assistant', content: response.response),
+        );
+        _isTyping = false;
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      debugPrint('❌ Error getting AI response: $e');
+      if (!mounted) return;
+
+      setState(() {
+        _messages.add(
+          AIChatMessage(
+            role: 'assistant',
+            content:
+                "I'm having trouble responding right now. Let's try again - what's on your mind?",
           ),
         );
         _isTyping = false;
       });
 
       _scrollToBottom();
-    });
-  }
-
-  String _generateResponse(String userMessage) {
-    final lowerMessage = userMessage.toLowerCase();
-
-    if (lowerMessage.contains('breathing')) {
-      return "Great choice. Let's focus on your breath. Try this: Breathe in slowly for 4 counts, hold for 4, then exhale for 6. This activates your parasympathetic nervous system, which helps you feel calmer. Would you like to try it now?";
-    } else if (lowerMessage.contains('grounding')) {
-      return "Grounding is excellent for bringing you back to the present. Try the 5-4-3-2-1 technique: Name 5 things you see, 4 you can touch, 3 you hear, 2 you smell, and 1 you taste. This helps interrupt anxious thoughts.";
-    } else if (lowerMessage.contains('reflection')) {
-      return "Reflection can help you understand your stress patterns. What's one thing that's been on your mind today? Sometimes just naming it can reduce its power.";
-    } else if (lowerMessage.contains('anxious') ||
-        lowerMessage.contains('stressed') ||
-        lowerMessage.contains('anxiety')) {
-      return "I hear you. It's okay to feel this way. Remember, stress is your body trying to protect you. Let's work with it, not against it. Would you like to try a quick breathing exercise or grounding technique?";
-    } else if (lowerMessage.contains('yes') || lowerMessage.contains('try')) {
-      return "Perfect! Let's start with a simple breathing exercise. Close your eyes if you're comfortable, and take a deep breath in through your nose for 4 seconds... Hold for 4 seconds... And slowly exhale through your mouth for 6 seconds. How did that feel?";
-    } else if (lowerMessage.contains('good') ||
-        lowerMessage.contains('better') ||
-        lowerMessage.contains('great')) {
-      return "That's wonderful to hear! Remember, you can use this technique anytime you feel overwhelmed. Is there anything else you'd like to explore today?";
-    } else if (lowerMessage.contains('thank')) {
-      return "You're welcome! Remember, taking time for your mental health is a sign of strength, not weakness. I'm here whenever you need support. Take care of yourself! 💚";
-    } else {
-      return "I'm here to support you. Would you like to explore breathing exercises, grounding techniques, or take a moment to reflect on what you're feeling?";
     }
   }
 
@@ -180,12 +150,14 @@ class _AICoachScreenState extends State<AICoachScreen> {
     return Scaffold(
       backgroundColor: AppColors.surface,
       appBar: _buildAppBar(),
-      body: Column(
-        children: [
-          Expanded(child: _buildChatArea()),
-          _buildInputArea(),
-        ],
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                Expanded(child: _buildChatArea()),
+                _buildInputArea(),
+              ],
+            ),
     );
   }
 
@@ -214,13 +186,29 @@ class _AICoachScreenState extends State<AICoachScreen> {
                   color: const Color(0xFFB4A7D6).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text(
-                  'AI-generated guidance',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: const Color(0xFFB4A7D6),
-                    fontWeight: FontWeight.w500,
-                    fontSize: 10,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _aiAvailable
+                            ? AppColors.success
+                            : AppColors.error,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'AI-powered',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: const Color(0xFFB4A7D6),
+                        fontWeight: FontWeight.w500,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(width: 6),
@@ -258,8 +246,10 @@ class _AICoachScreenState extends State<AICoachScreen> {
         // Typing indicator
         if (_isTyping) _buildTypingIndicator(),
 
-        // Quick choices
-        if (_showChoices && _messages.length == 1) ...[
+        // Quick choices (only show at start)
+        if (_showChoices &&
+            _messages.length == 1 &&
+            _quickResponses.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.md),
           _buildQuickChoices(),
         ],
@@ -267,7 +257,7 @@ class _AICoachScreenState extends State<AICoachScreen> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage message) {
+  Widget _buildMessageBubble(AIChatMessage message) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Row(
@@ -304,7 +294,7 @@ class _AICoachScreenState extends State<AICoachScreen> {
                     ],
             ),
             child: Text(
-              message.text,
+              message.content,
               style: AppTextStyles.bodyMedium.copyWith(
                 color: message.isUser ? Colors.white : AppColors.textPrimary,
                 height: 1.4,
@@ -337,16 +327,7 @@ class _AICoachScreenState extends State<AICoachScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: List.generate(3, (index) {
-                return TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(milliseconds: 600 + (index * 200)),
-                  builder: (context, value, child) {
-                    return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 2),
-                      child: _BouncingDot(delay: index * 0.2),
-                    );
-                  },
-                );
+                return _BouncingDot(delay: index * 0.2);
               }),
             ),
           ),
@@ -356,6 +337,41 @@ class _AICoachScreenState extends State<AICoachScreen> {
   }
 
   Widget _buildQuickChoices() {
+    // Default choices if none from API
+    final choices = _quickResponses.isNotEmpty
+        ? _quickResponses
+        : [
+            QuickResponse(
+              id: 'breathing',
+              label: 'Breathing Exercise',
+              message: "I'd like to try a breathing exercise",
+            ),
+            QuickResponse(
+              id: 'grounding',
+              label: 'Grounding Technique',
+              message: 'Can you guide me through a grounding technique?',
+            ),
+            QuickResponse(
+              id: 'talk',
+              label: 'Just Talk',
+              message: 'I just need someone to talk to',
+            ),
+          ];
+
+    final icons = {
+      'breathing': Icons.air,
+      'grounding': Icons.local_florist,
+      'talk': Icons.chat_bubble_outline,
+      'stressed': Icons.favorite_outline,
+    };
+
+    final colors = {
+      'breathing': const Color(0xFF6B9BD1),
+      'grounding': const Color(0xFF8FB996),
+      'talk': const Color(0xFFB4A7D6),
+      'stressed': const Color(0xFFE89B9B),
+    };
+
     return Column(
       children: [
         Text(
@@ -363,22 +379,26 @@ class _AICoachScreenState extends State<AICoachScreen> {
           style: AppTextStyles.bodySmall.copyWith(color: AppColors.textHint),
         ),
         const SizedBox(height: AppSpacing.md),
-        ..._quickChoices.map(
+        ...choices.map(
           (choice) => Padding(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: _buildChoiceButton(choice),
+            child: _buildChoiceButton(
+              choice,
+              icons[choice.id] ?? Icons.arrow_forward,
+              colors[choice.id] ?? const Color(0xFF6B9BD1),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildChoiceButton(QuickChoice choice) {
+  Widget _buildChoiceButton(QuickResponse choice, IconData icon, Color color) {
     return Material(
       color: AppColors.background,
       borderRadius: AppRadius.lgBorder,
       child: InkWell(
-        onTap: () => _handleChoiceTap(choice),
+        onTap: () => _handleQuickChoice(choice),
         borderRadius: AppRadius.lgBorder,
         child: Container(
           padding: const EdgeInsets.all(AppSpacing.md),
@@ -392,10 +412,10 @@ class _AICoachScreenState extends State<AICoachScreen> {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: choice.color.withValues(alpha: 0.15),
+                  color: color.withValues(alpha: 0.15),
                   borderRadius: AppRadius.mdBorder,
                 ),
-                child: Icon(choice.icon, color: choice.color, size: 22),
+                child: Icon(icon, color: color, size: 22),
               ),
               const SizedBox(width: AppSpacing.md),
               Expanded(
@@ -445,16 +465,6 @@ class _AICoachScreenState extends State<AICoachScreen> {
                     borderRadius: BorderRadius.circular(24),
                     borderSide: BorderSide.none,
                   ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide(
-                      color: const Color(0xFF6B9BD1).withValues(alpha: 0.5),
-                    ),
-                  ),
                 ),
                 onSubmitted: (_) => _sendMessage(),
               ),
@@ -466,12 +476,9 @@ class _AICoachScreenState extends State<AICoachScreen> {
               child: InkWell(
                 onTap: _isTyping ? null : () => _sendMessage(),
                 borderRadius: BorderRadius.circular(24),
-                child: Container(
+                child: SizedBox(
                   width: 44,
                   height: 44,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                  ),
                   child: Icon(
                     Icons.send,
                     color: _isTyping ? Colors.white54 : Colors.white,
@@ -487,10 +494,11 @@ class _AICoachScreenState extends State<AICoachScreen> {
   }
 }
 
-/// AI Avatar Widget
+// Keep the _AIAvatar, _BouncingDot, etc. widgets from the previous version
+// (I'll include them for completeness)
+
 class _AIAvatar extends StatefulWidget {
   final bool isSpeaking;
-
   const _AIAvatar({this.isSpeaking = false});
 
   @override
@@ -509,14 +517,10 @@ class _AIAvatarState extends State<_AIAvatar>
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     );
-
     _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
-
-    if (widget.isSpeaking) {
-      _pulseController.repeat(reverse: true);
-    }
+    if (widget.isSpeaking) _pulseController.repeat(reverse: true);
   }
 
   @override
@@ -544,7 +548,6 @@ class _AIAvatarState extends State<_AIAvatar>
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Pulse background
           AnimatedBuilder(
             animation: _pulseAnimation,
             builder: (context, child) {
@@ -563,8 +566,6 @@ class _AIAvatarState extends State<_AIAvatar>
               );
             },
           ),
-
-          // Avatar face
           Container(
             width: 80,
             height: 80,
@@ -572,30 +573,43 @@ class _AIAvatarState extends State<_AIAvatar>
               shape: BoxShape.circle,
               color: AppColors.background,
               border: Border.all(color: const Color(0xFFB4A7D6), width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox(height: 8),
-                // Eyes
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _BlinkingEye(),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
                     const SizedBox(width: 12),
-                    _BlinkingEye(),
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 6),
-                // Mouth
-                _AnimatedMouth(isSpeaking: widget.isSpeaking),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: widget.isSpeaking ? 12 : 10,
+                  height: widget.isSpeaking ? 8 : 4,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: AppColors.textPrimary.withValues(alpha: 0.6),
+                  ),
+                ),
               ],
             ),
           ),
@@ -605,151 +619,8 @@ class _AIAvatarState extends State<_AIAvatar>
   }
 }
 
-/// Blinking eye widget
-class _BlinkingEye extends StatefulWidget {
-  @override
-  State<_BlinkingEye> createState() => _BlinkingEyeState();
-}
-
-class _BlinkingEyeState extends State<_BlinkingEye>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _blinkController;
-  late Animation<double> _blinkAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _blinkController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 150),
-    );
-
-    _blinkAnimation = Tween<double>(begin: 1.0, end: 0.1).animate(
-      CurvedAnimation(parent: _blinkController, curve: Curves.easeInOut),
-    );
-
-    // Random blinking
-    _startBlinking();
-  }
-
-  void _startBlinking() {
-    Future.delayed(
-      Duration(milliseconds: 3000 + (DateTime.now().millisecond % 2000)),
-      () {
-        if (mounted) {
-          _blinkController.forward().then((_) {
-            _blinkController.reverse().then((_) {
-              _startBlinking();
-            });
-          });
-        }
-      },
-    );
-  }
-
-  @override
-  void dispose() {
-    _blinkController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _blinkAnimation,
-      builder: (context, child) {
-        return Transform.scale(
-          scaleY: _blinkAnimation.value,
-          child: Container(
-            width: 8,
-            height: 8,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.textPrimary,
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Animated mouth widget
-class _AnimatedMouth extends StatefulWidget {
-  final bool isSpeaking;
-
-  const _AnimatedMouth({required this.isSpeaking});
-
-  @override
-  State<_AnimatedMouth> createState() => _AnimatedMouthState();
-}
-
-class _AnimatedMouthState extends State<_AnimatedMouth>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _mouthController;
-  late Animation<double> _heightAnimation;
-  late Animation<double> _widthAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _mouthController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-
-    _heightAnimation = Tween<double>(begin: 4, end: 8).animate(
-      CurvedAnimation(parent: _mouthController, curve: Curves.easeInOut),
-    );
-
-    _widthAnimation = Tween<double>(begin: 10, end: 12).animate(
-      CurvedAnimation(parent: _mouthController, curve: Curves.easeInOut),
-    );
-
-    if (widget.isSpeaking) {
-      _mouthController.repeat(reverse: true);
-    }
-  }
-
-  @override
-  void didUpdateWidget(_AnimatedMouth oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.isSpeaking && !oldWidget.isSpeaking) {
-      _mouthController.repeat(reverse: true);
-    } else if (!widget.isSpeaking && oldWidget.isSpeaking) {
-      _mouthController.stop();
-      _mouthController.reset();
-    }
-  }
-
-  @override
-  void dispose() {
-    _mouthController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _mouthController,
-      builder: (context, child) {
-        return Container(
-          width: widget.isSpeaking ? _widthAnimation.value : 10,
-          height: widget.isSpeaking ? _heightAnimation.value : 4,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            color: AppColors.textPrimary.withValues(alpha: 0.6),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// Bouncing dot for typing indicator
 class _BouncingDot extends StatefulWidget {
   final double delay;
-
   const _BouncingDot({required this.delay});
 
   @override
@@ -768,16 +639,12 @@ class _BouncingDotState extends State<_BouncingDot>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     );
-
     _animation = Tween<double>(
       begin: 0,
       end: -6,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
-
     Future.delayed(Duration(milliseconds: (widget.delay * 200).toInt()), () {
-      if (mounted) {
-        _controller.repeat(reverse: true);
-      }
+      if (mounted) _controller.repeat(reverse: true);
     });
   }
 
@@ -795,6 +662,7 @@ class _BouncingDotState extends State<_BouncingDot>
         return Transform.translate(
           offset: Offset(0, _animation.value),
           child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 2),
             width: 8,
             height: 8,
             decoration: BoxDecoration(
