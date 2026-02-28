@@ -22,3 +22,4 @@ PyWavelets>=1.5.0
 # Utilities
 python-dotenv>=1.0.0
 certifi>=2023.0.0
+pydantic-settings>=2.0.0
