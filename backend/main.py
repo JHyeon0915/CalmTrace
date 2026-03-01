@@ -1,9 +1,14 @@
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.database import init_db, close_db
-from app.routers import auth, streak, goals, notifications, stress
+from app.routers import auth, streak, goals, notifications, stress, ai_coach
 
 
 @asynccontextmanager
@@ -38,6 +43,7 @@ app.include_router(streak.router, prefix="/v1/streak", tags=["Streak"])
 app.include_router(goals.router, prefix="/v1/goals", tags=["Goals"])
 app.include_router(notifications.router, prefix="/v1/notifications", tags=["Notifications"])
 app.include_router(stress.router, prefix="/v1/stress", tags=["Stress Prediction"])
+app.include_router(ai_coach.router, prefix="/v1/ai-coach", tags=["AI Coach"])
 
 
 @app.get("/")

@@ -3,6 +3,7 @@ import '../constants/app_constants.dart';
 import 'cognitive_reframing_screen.dart';
 import 'guided_breathing_screen.dart';
 import 'mindfulness_screen.dart';
+import 'ai_coach_screen.dart';
 
 class TherapyHubScreen extends StatelessWidget {
   const TherapyHubScreen({super.key});
@@ -89,8 +90,23 @@ class TherapyHubScreen extends StatelessWidget {
                         builder: (context) => const MindfulnessScreen(),
                       ),
                     );
+                  } else if (therapies[index].path == '/therapy/coach') {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const AICoachScreen(),
+                      ),
+                    );
+                  } else {
+                    // For other paths, show an error message
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Wrong path! Please check the path configuration.',
+                        ),
+                      ),
+                    );
                   }
-                  // Add other navigation routes as needed
                 },
               );
             },
