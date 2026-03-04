@@ -233,22 +233,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.2"
-  cortex:
-    dependency: "direct main"
-    description:
-      name: cortex
-      sha256: c7bf47a66ecdc9b474f0086145167b20f57a95ac26921ce6a139bb8e8bb135d6
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.1.0"
-  cortex_platform_interface:
-    dependency: transitive
-    description:
-      name: cortex_platform_interface
-      sha256: da0e9ecaf2135157bd490786a3e0d42eaa21d162cf9ba817978f4cf070be1467
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.0.1"
   crypto:
     dependency: transitive
     description:
@@ -934,7 +918,7 @@ packages:
     source: hosted
     version: "1.0.1"
   web_socket_channel:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: web_socket_channel
       sha256: d645757fb0f4773d602444000a8131ff5d48c9e47adfe9772652dd1a4f2d45c8
