@@ -4,8 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/notification_preferences_model.dart';
 import '../network/api_client.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
+  final FlutterLocalNotificationsPlugin _localNotifications =
+      FlutterLocalNotificationsPlugin();
+  bool _localInitialized = false;
+
   final ApiClient _apiClient = ApiClient();
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
@@ -60,6 +65,55 @@ class NotificationService {
     } catch (e) {
       debugPrint('❌ Error registering device: $e');
     }
+  }
+
+  // ==================== Local Notifications Initialization ====================
+
+  Future<void> initializeLocal() async {
+    if (_localInitialized) return;
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+
+    const iosSettings = DarwinInitializationSettings(
+      requestAlertPermission: true,
+      requestSoundPermission: true,
+    );
+
+    InitializationSettings initializationSettings =
+        const InitializationSettings(
+          android: androidSettings,
+          iOS: iosSettings,
+        );
+
+    await _localNotifications.initialize(settings: initializationSettings);
+    _localInitialized = true;
+  }
+
+  Future<void> showLocalNotification({
+    required String title,
+    required String body,
+    String type = 'general',
+    int id = 0,
+  }) async {
+    await initializeLocal();
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(
+        'calmatrace_device_events',
+        'Device Events',
+        channelDescription: 'Headset and smartwatch connection events',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+      iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
+    );
+    await _localNotifications.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: details,
+    );
+    debugPrint('🔔 [NotificationService] Local notification: $title');
   }
 
   // ==================== Preferences ====================

@@ -8,6 +8,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'device_feedback_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'notification_service.dart';
 
 /// EMOTIV Cortex API Constants
 class EmotivConstants {
@@ -35,8 +36,6 @@ class EmotivConstants {
       dotenv.env['EMOTIV_API_SECRET'] ?? 'YOUR_CLIENT_SECRET';
   static const String licenseId = '';
   static const int debitNumber = 1;
-
-  // WebSocket
   static const String cortexUrl = 'wss://localhost:6868';
 }
 
@@ -170,13 +169,13 @@ extension EmotivConnectionStatusExtension on EmotivConnectionStatus {
 }
 
 /// EMOTIV Cortex Service using WebSocket (JSON-RPC 2.0)
-/// Communicates directly with the Cortex service running on localhost:6868
 class EmotivService {
   static final EmotivService _instance = EmotivService._internal();
   factory EmotivService() => _instance;
   EmotivService._internal();
 
   final DeviceFeedbackService _feedbackService = DeviceFeedbackService();
+  final NotificationService _notificationService = NotificationService();
 
   // WebSocket
   WebSocketChannel? _channel;
@@ -193,6 +192,10 @@ class EmotivService {
   String? _userName;
   List<EmotivHeadset> _headsets = [];
   List<EmotivHeadset> get headsets => _headsets;
+
+  /// The global BuildContext used to trigger in-app feedback.
+  /// Set this from your root widget (e.g. in main app navigator).
+  BuildContext? appContext;
 
   EmotivHeadset? get connectedHeadset {
     try {
@@ -225,7 +228,6 @@ class EmotivService {
   // Initialization & WebSocket connection
   // ─────────────────────────────────────────────
 
-  /// Initialize and connect to the Cortex WebSocket server
   Future<bool> initialize() async {
     debugPrint('🧠 [EmotivService] Initializing Cortex via WebSocket...');
     _updateStatus(EmotivConnectionStatus.initializing);
@@ -264,10 +266,9 @@ class EmotivService {
       );
 
       // EMOTIV uses a self-signed certificate.
-      // We create a custom HttpClient that trusts it for development.
+      // Create a custom HttpClient that trusts it for development.
       final httpClient = HttpClient()
         ..badCertificateCallback = (cert, host, port) {
-          // In production, validate against the EMOTIV Root CA instead.
           debugPrint(
             '⚠️ [EmotivService] Accepting self-signed cert from $host:$port',
           );
@@ -302,19 +303,16 @@ class EmotivService {
     try {
       final data = jsonDecode(raw as String) as Map<String, dynamic>;
 
-      // JSON-RPC response (has "id" field)
       if (data.containsKey('id') && data.containsKey('result')) {
         _handleResponse(data);
         return;
       }
 
-      // JSON-RPC error response
       if (data.containsKey('id') && data.containsKey('error')) {
         _handleErrorResponse(data);
         return;
       }
 
-      // Warning event (has "warning" field)
       if (data.containsKey('warning')) {
         _handleWarning(data['warning'] as Map<String, dynamic>);
         return;
@@ -416,6 +414,9 @@ class EmotivService {
     debugPrint('❌ [EmotivService] Request $id error [$code]: $message');
   }
 
+  /// Handles headset connect/disconnect warnings and triggers the
+  /// appropriate user-facing feedback (vibration, ring, notification, or none)
+  /// based on the user's saved DeviceFeedbackType preference.
   void _handleWarning(Map<String, dynamic> warning) {
     final code = warning['code'] as int?;
     final message = warning['message'];
@@ -427,26 +428,49 @@ class EmotivService {
         _activeHeadsetId = headsetId as String?;
         debugPrint('🎧 [EmotivService] Headset connected: $_activeHeadsetId');
         queryHeadsets();
+
+        // ── Trigger user feedback for headset connection ──
+        _onHeadsetConnectionEvent(connected: true);
         break;
 
       case EmotivConstants.headsetIsDisconnected:
         debugPrint('🔌 [EmotivService] Headset disconnected');
         _activeHeadsetId = null;
         queryHeadsets();
+
+        // ── Trigger user feedback for headset disconnection ──
+        _onHeadsetConnectionEvent(connected: false);
         break;
     }
   }
 
+  /// Dispatches the correct feedback action based on the user's preference.
+  Future<void> _onHeadsetConnectionEvent({required bool connected}) async {
+    final ctx = appContext;
+    final feedbackType = await _feedbackService.getFeedbackType();
+
+    if (feedbackType == DeviceFeedbackType.notification) {
+      // Special case: show a local push instead of the snackbar banner
+      final title = connected
+          ? '🧠 EMOTIV Headset Connected'
+          : '🔌 EMOTIV Headset Disconnected';
+      final body = connected
+          ? 'Your headset is ready. CalmTrace can now track your EEG.'
+          : 'Your headset was disconnected from CalmTrace.';
+      await _notificationService.showLocalNotification(
+        title: title,
+        body: body,
+      );
+    } else if (ctx != null && ctx.mounted) {
+      // vibration, ring, none — all handled by existing triggerFeedback
+      await _feedbackService.triggerFeedback(ctx);
+    }
+  }
+
   void _handleDataStream(Map<String, dynamic> data) {
-    if (data.containsKey('eeg')) {
-      _processEEGData(data['eeg']);
-    }
-    if (data.containsKey('met')) {
-      _processMetricsData(data['met']);
-    }
-    if (data.containsKey('pow')) {
-      _processBandPowerData(data['pow']);
-    }
+    if (data.containsKey('eeg')) _processEEGData(data['eeg']);
+    if (data.containsKey('met')) _processMetricsData(data['met']);
+    if (data.containsKey('pow')) _processBandPowerData(data['pow']);
   }
 
   void _processEEGData(dynamic eegData) {
@@ -586,10 +610,8 @@ class EmotivService {
         'params': {'command': 'connect', 'headset': headsetId},
       }),
     );
-
-    if (context != null && context.mounted) {
-      await _feedbackService.triggerFeedback(context);
-    }
+    // Note: actual feedback fires in _onHeadsetConnectionEvent
+    // when the server confirms with warning code 104.
   }
 
   void disconnectHeadset(String headsetId) {
@@ -681,7 +703,6 @@ class EmotivService {
 
   void closeSession() {
     if (_cortexToken == null || _sessionId == null) return;
-
     debugPrint('📝 [EmotivService] Closing session...');
     sendRequestToCortex(
       jsonEncode({
@@ -705,6 +726,7 @@ class EmotivService {
   // ─────────────────────────────────────────────
 
   Future<bool> fullConnect(BuildContext context) async {
+    appContext = context;
     final initialized = await initialize();
     if (!initialized) return false;
 
@@ -724,6 +746,7 @@ class EmotivService {
 
   Future<bool> connectMock(BuildContext? context) async {
     debugPrint('🎭 [EmotivService] Connecting with mock data...');
+    if (context != null) appContext = context;
 
     _useMockData = true;
     _activeHeadsetId = 'MOCK-EPOC-001';
@@ -733,9 +756,8 @@ class EmotivService {
     _headsetController.add(_headsets);
     _updateStatus(EmotivConnectionStatus.connected);
 
-    if (context != null && context.mounted) {
-      await _feedbackService.triggerFeedback(context);
-    }
+    // Simulate the connection event feedback for mock mode too
+    await _onHeadsetConnectionEvent(connected: true);
 
     debugPrint('✅ [EmotivService] Mock connection established');
     return true;
@@ -812,20 +834,15 @@ class EmotivService {
   String getSetupInstructions() => '''
 To connect your EMOTIV headset:
 
-1. Install EMOTIV App on your computer (not phone — Cortex runs on desktop)
+1. Install EMOTIV App on your computer (Cortex runs on desktop)
 2. Create an account at emotiv.com
-3. Register a Cortex App at emotiv.com/developer to get clientId & clientSecret
-4. Add credentials to your .env file as EMOTIV_API_KEY and EMOTIV_API_SECRET
-5. Launch the EMOTIV App — this starts the Cortex WebSocket server on localhost:6868
+3. Register a Cortex App at emotiv.com/developer
+4. Add credentials to .env as EMOTIV_API_KEY and EMOTIV_API_SECRET
+5. Launch EMOTIV App — starts the Cortex server on localhost:6868
 6. Pair your headset via the EMOTIV App
 7. Run CalmTrace and connect
 
-Supported headsets:
-- EMOTIV EPOC X
-- EMOTIV EPOC+
-- EMOTIV EPOC Flex
-- EMOTIV INSIGHT / INSIGHT 2.0
-- EMOTIV MN8
+Supported headsets: EPOC X, EPOC+, EPOC Flex, INSIGHT, INSIGHT 2.0, MN8
 ''';
 
   // ─────────────────────────────────────────────
