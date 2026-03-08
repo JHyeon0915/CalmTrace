@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'package:cortex/cortex.dart';
+import 'package:web_socket_channel/io.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'device_feedback_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'notification_service.dart';
 
 /// EMOTIV Cortex API Constants
 class EmotivConstants {
@@ -32,8 +34,9 @@ class EmotivConstants {
       dotenv.env['EMOTIV_API_KEY'] ?? 'YOUR_CLIENT_ID';
   static final String clientSecret =
       dotenv.env['EMOTIV_API_SECRET'] ?? 'YOUR_CLIENT_SECRET';
-  static const String licenseId = ''; // Optional - leave empty if not using
+  static const String licenseId = '';
   static const int debitNumber = 1;
+  static const String cortexUrl = 'wss://localhost:6868';
 }
 
 /// EEG data point with timestamp
@@ -56,22 +59,19 @@ class EEGDataPoint {
     this.gamma,
   });
 
-  /// Calculate stress indicator from band powers
   double? get stressIndicator {
     if (alpha == null || betaH == null || alpha == 0) return null;
     return (betaH! + (gamma ?? 0)) / alpha!;
   }
 
-  /// Calculate relaxation indicator
   double? get relaxationIndicator {
     if (alpha == null || betaH == null || betaH == 0) return null;
     return (alpha! + (theta ?? 0)) / betaH!;
   }
 
   @override
-  String toString() {
-    return 'EEG(channels: ${channels.length}, stress: ${stressIndicator?.toStringAsFixed(2)})';
-  }
+  String toString() =>
+      'EEG(channels: ${channels.length}, stress: ${stressIndicator?.toStringAsFixed(2)})';
 }
 
 /// Performance metrics from EMOTIV
@@ -94,22 +94,21 @@ class EmotivMetrics {
     required this.timestamp,
   });
 
-  Map<String, dynamic> toJson() {
-    return {
-      'engagement': engagement,
-      'excitement': excitement,
-      'stress': stress,
-      'relaxation': relaxation,
-      'interest': interest,
-      'focus': focus,
-      'timestamp': timestamp.toIso8601String(),
-    };
-  }
+  Map<String, dynamic> toJson() => {
+    'engagement': engagement,
+    'excitement': excitement,
+    'stress': stress,
+    'relaxation': relaxation,
+    'interest': interest,
+    'focus': focus,
+    'timestamp': timestamp.toIso8601String(),
+  };
 
   @override
-  String toString() {
-    return 'EmotivMetrics(stress: ${stress?.toStringAsFixed(2)}, relaxation: ${relaxation?.toStringAsFixed(2)}, focus: ${focus?.toStringAsFixed(2)})';
-  }
+  String toString() =>
+      'EmotivMetrics(stress: ${stress?.toStringAsFixed(2)}, '
+      'relaxation: ${relaxation?.toStringAsFixed(2)}, '
+      'focus: ${focus?.toStringAsFixed(2)})';
 }
 
 /// Headset info
@@ -124,13 +123,11 @@ class EmotivHeadset {
     required this.status,
   });
 
-  factory EmotivHeadset.fromJson(Map<String, dynamic> json) {
-    return EmotivHeadset(
-      id: json['id'] ?? '',
-      isVirtual: json['isVirtual'] ?? false,
-      status: json['status'] ?? 'unknown',
-    );
-  }
+  factory EmotivHeadset.fromJson(Map<String, dynamic> json) => EmotivHeadset(
+    id: json['id'] ?? '',
+    isVirtual: json['isVirtual'] ?? false,
+    status: json['status'] ?? 'unknown',
+  );
 
   bool get isConnected => status == 'connected';
 
@@ -171,13 +168,19 @@ extension EmotivConnectionStatusExtension on EmotivConnectionStatus {
       this == EmotivConnectionStatus.streaming;
 }
 
-/// EMOTIV Cortex Service using the cortex Flutter plugin
+/// EMOTIV Cortex Service using WebSocket (JSON-RPC 2.0)
 class EmotivService {
   static final EmotivService _instance = EmotivService._internal();
   factory EmotivService() => _instance;
   EmotivService._internal();
 
   final DeviceFeedbackService _feedbackService = DeviceFeedbackService();
+  final NotificationService _notificationService = NotificationService();
+
+  // WebSocket
+  WebSocketChannel? _channel;
+  StreamSubscription? _wsSubscription;
+  bool _wsConnected = false;
 
   // State
   EmotivConnectionStatus _status = EmotivConnectionStatus.disconnected;
@@ -190,6 +193,10 @@ class EmotivService {
   List<EmotivHeadset> _headsets = [];
   List<EmotivHeadset> get headsets => _headsets;
 
+  /// The global BuildContext used to trigger in-app feedback.
+  /// Set this from your root widget (e.g. in main app navigator).
+  BuildContext? appContext;
+
   EmotivHeadset? get connectedHeadset {
     try {
       return _headsets.firstWhere((h) => h.id == _activeHeadsetId);
@@ -198,15 +205,12 @@ class EmotivService {
     }
   }
 
-  // Mock mode for testing
+  // Mock mode
   bool _useMockData = false;
   bool get useMockData => _useMockData;
   Timer? _mockDataTimer;
 
-  // Stream subscriptions for Cortex events
-  final List<StreamSubscription> _cortexSubscriptions = [];
-
-  // Stream controllers for app usage
+  // Stream controllers
   final _statusController =
       StreamController<EmotivConnectionStatus>.broadcast();
   Stream<EmotivConnectionStatus> get statusStream => _statusController.stream;
@@ -220,35 +224,30 @@ class EmotivService {
   final _headsetController = StreamController<List<EmotivHeadset>>.broadcast();
   Stream<List<EmotivHeadset>> get headsetStream => _headsetController.stream;
 
-  /// Initialize Cortex and set up listeners
+  // ─────────────────────────────────────────────
+  // Initialization & WebSocket connection
+  // ─────────────────────────────────────────────
+
   Future<bool> initialize() async {
-    debugPrint('🧠 [EmotivService] Initializing Cortex...');
+    debugPrint('🧠 [EmotivService] Initializing Cortex via WebSocket...');
     _updateStatus(EmotivConnectionStatus.initializing);
 
     try {
-      // Request location permission on Android (required for Bluetooth)
+      // Android requires location permission for Bluetooth
       if (Platform.isAndroid) {
-        final status = await Permission.location.request();
-        debugPrint('📍 [EmotivService] Location permission: $status');
-
-        if (!status.isGranted) {
+        final locationStatus = await Permission.location.request();
+        if (!locationStatus.isGranted) {
           debugPrint('❌ [EmotivService] Location permission denied');
           _updateStatus(EmotivConnectionStatus.error);
           return false;
         }
       }
 
-      // Start Cortex
-      final result = await startCortex();
-      debugPrint('🧠 [EmotivService] Cortex started: $result');
-
-      if (!result) {
+      final connected = await _connectWebSocket();
+      if (!connected) {
         _updateStatus(EmotivConnectionStatus.error);
         return false;
       }
-
-      // Set up event listeners
-      _setupEventListeners();
 
       _updateStatus(EmotivConnectionStatus.disconnected);
       return true;
@@ -259,53 +258,107 @@ class EmotivService {
     }
   }
 
-  /// Set up listeners for Cortex events
-  void _setupEventListeners() {
-    // Response events
-    _cortexSubscriptions.add(
-      responseEvents.listen((event) {
-        debugPrint('📨 [EmotivService] Response: ${event.getRequestId()}');
-        _handleResponseEvent(event);
-      }),
-    );
+  /// Open the WebSocket connection to Cortex
+  Future<bool> _connectWebSocket() async {
+    try {
+      debugPrint(
+        '🔌 [EmotivService] Connecting to ${EmotivConstants.cortexUrl}...',
+      );
 
-    // Warning events
-    _cortexSubscriptions.add(
-      warningEvents.listen((event) {
-        debugPrint('⚠️ [EmotivService] Warning: ${event.getWarningCode()}');
-        _handleWarningEvent(event);
-      }),
-    );
+      // EMOTIV uses a self-signed certificate.
+      // Create a custom HttpClient that trusts it for development.
+      final httpClient = HttpClient()
+        ..badCertificateCallback = (cert, host, port) {
+          debugPrint(
+            '⚠️ [EmotivService] Accepting self-signed cert from $host:$port',
+          );
+          return true;
+        };
 
-    // Data stream events
-    _cortexSubscriptions.add(
-      dataStreamEvents.listen((event) {
-        _handleDataStreamEvent(event);
-      }),
-    );
+      _channel = IOWebSocketChannel.connect(
+        Uri.parse(EmotivConstants.cortexUrl),
+        customClient: httpClient,
+      );
+
+      // Wait briefly to detect immediate connection failure
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      _wsSubscription = _channel!.stream.listen(
+        _onWebSocketMessage,
+        onError: _onWebSocketError,
+        onDone: _onWebSocketDone,
+      );
+
+      _wsConnected = true;
+      debugPrint('✅ [EmotivService] WebSocket connected');
+      return true;
+    } catch (e) {
+      debugPrint('❌ [EmotivService] WebSocket connection failed: $e');
+      return false;
+    }
   }
 
-  /// Handle response events from Cortex
-  void _handleResponseEvent(dynamic event) {
-    final requestId = event.getRequestId();
-    final responseBody = event.getResponseBody();
-    final isError = event.isResponseError();
+  /// Handle incoming WebSocket messages
+  void _onWebSocketMessage(dynamic raw) {
+    try {
+      final data = jsonDecode(raw as String) as Map<String, dynamic>;
 
-    if (isError) {
-      debugPrint('❌ [EmotivService] Request $requestId error');
-      return;
+      if (data.containsKey('id') && data.containsKey('result')) {
+        _handleResponse(data);
+        return;
+      }
+
+      if (data.containsKey('id') && data.containsKey('error')) {
+        _handleErrorResponse(data);
+        return;
+      }
+
+      if (data.containsKey('warning')) {
+        _handleWarning(data['warning'] as Map<String, dynamic>);
+        return;
+      }
+
+      // Data stream event (has "eeg", "met", "pow", etc.)
+      _handleDataStream(data);
+    } catch (e) {
+      debugPrint('❌ [EmotivService] Failed to parse message: $e\nRaw: $raw');
     }
+  }
 
-    switch (requestId) {
+  void _onWebSocketError(dynamic error) {
+    debugPrint('❌ [EmotivService] WebSocket error: $error');
+    _wsConnected = false;
+    _updateStatus(EmotivConnectionStatus.error);
+  }
+
+  void _onWebSocketDone() {
+    debugPrint('🔌 [EmotivService] WebSocket closed');
+    _wsConnected = false;
+    if (_status != EmotivConnectionStatus.disconnected) {
+      _updateStatus(EmotivConnectionStatus.disconnected);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // Message handlers
+  // ─────────────────────────────────────────────
+
+  void _handleResponse(Map<String, dynamic> data) {
+    final id = data['id'] as int?;
+    final result = data['result'];
+
+    debugPrint('📨 [EmotivService] Response for request $id');
+
+    switch (id) {
       case EmotivConstants.getUserLoggedInRequestId:
-        if (responseBody is List && responseBody.isNotEmpty) {
-          _userName = responseBody[0]['username'] as String?;
+        if (result is List && result.isNotEmpty) {
+          _userName = result[0]['username'] as String?;
           debugPrint('👤 [EmotivService] User logged in: $_userName');
         }
         break;
 
       case EmotivConstants.loginRequestId:
-        _userName = responseBody['username'] as String?;
+        _userName = result['username'] as String?;
         debugPrint('✅ [EmotivService] Login successful: $_userName');
         break;
 
@@ -315,7 +368,7 @@ class EmotivService {
         break;
 
       case EmotivConstants.authorizeRequestId:
-        _cortexToken = responseBody['cortexToken'] as String?;
+        _cortexToken = result['cortexToken'] as String?;
         debugPrint('🔑 [EmotivService] Got cortex token');
         if (_cortexToken != null) {
           _updateStatus(EmotivConnectionStatus.connected);
@@ -323,16 +376,20 @@ class EmotivService {
         break;
 
       case EmotivConstants.queryHeadsetRequestId:
-        _headsets = (responseBody as List)
-            .map((h) => EmotivHeadset.fromJson(h as Map<String, dynamic>))
-            .toList();
-        debugPrint('📡 [EmotivService] Found ${_headsets.length} headsets');
-        _headsetController.add(_headsets);
+        if (result is List) {
+          _headsets = result
+              .map((h) => EmotivHeadset.fromJson(h as Map<String, dynamic>))
+              .toList();
+          debugPrint('📡 [EmotivService] Found ${_headsets.length} headset(s)');
+          _headsetController.add(_headsets);
+        }
         break;
 
       case EmotivConstants.createSessionRequestId:
-        _sessionId = responseBody['id'] as String?;
-        debugPrint('📝 [EmotivService] Session created: $_sessionId');
+        if (result is Map<String, dynamic>) {
+          _sessionId = result['id'] as String?;
+          debugPrint('📝 [EmotivService] Session created: $_sessionId');
+        }
         break;
 
       case EmotivConstants.subscribeDataRequestId:
@@ -340,61 +397,86 @@ class EmotivService {
         _updateStatus(EmotivConnectionStatus.streaming);
         break;
 
+      case EmotivConstants.updateSessionRequestId:
+        debugPrint('📝 [EmotivService] Session updated');
+        break;
+
       default:
-        debugPrint('📨 [EmotivService] Response for request $requestId');
+        debugPrint('📨 [EmotivService] Unhandled response for request $id');
     }
   }
 
-  /// Handle warning events from Cortex
-  void _handleWarningEvent(dynamic event) {
-    final warningCode = event.getWarningCode();
-    final message = event.getWarningMessage();
+  void _handleErrorResponse(Map<String, dynamic> data) {
+    final id = data['id'];
+    final error = data['error'] as Map<String, dynamic>?;
+    final code = error?['code'];
+    final message = error?['message'];
+    debugPrint('❌ [EmotivService] Request $id error [$code]: $message');
+  }
 
-    switch (warningCode) {
+  /// Handles headset connect/disconnect warnings and triggers the
+  /// appropriate user-facing feedback (vibration, ring, notification, or none)
+  /// based on the user's saved DeviceFeedbackType preference.
+  void _handleWarning(Map<String, dynamic> warning) {
+    final code = warning['code'] as int?;
+    final message = warning['message'];
+    debugPrint('⚠️ [EmotivService] Warning $code: $message');
+
+    switch (code) {
       case EmotivConstants.headsetIsConnected:
-        _activeHeadsetId = message['headsetId'] as String?;
+        final headsetId = (message is Map) ? message['headsetId'] : null;
+        _activeHeadsetId = headsetId as String?;
         debugPrint('🎧 [EmotivService] Headset connected: $_activeHeadsetId');
-        // Refresh headset list
         queryHeadsets();
+
+        // ── Trigger user feedback for headset connection ──
+        _onHeadsetConnectionEvent(connected: true);
         break;
 
       case EmotivConstants.headsetIsDisconnected:
         debugPrint('🔌 [EmotivService] Headset disconnected');
         _activeHeadsetId = null;
         queryHeadsets();
-        break;
 
-      default:
-        debugPrint('⚠️ [EmotivService] Warning $warningCode: $message');
+        // ── Trigger user feedback for headset disconnection ──
+        _onHeadsetConnectionEvent(connected: false);
+        break;
     }
   }
 
-  /// Handle data stream events from Cortex
-  void _handleDataStreamEvent(dynamic event) {
-    final data = event.getDataStreamBody();
+  /// Dispatches the correct feedback action based on the user's preference.
+  Future<void> _onHeadsetConnectionEvent({required bool connected}) async {
+    final ctx = appContext;
+    final feedbackType = await _feedbackService.getFeedbackType();
 
-    if (data is Map<String, dynamic>) {
-      // Check for EEG data
-      if (data.containsKey('eeg')) {
-        _processEEGData(data['eeg']);
-      }
-
-      // Check for performance metrics
-      if (data.containsKey('met')) {
-        _processMetricsData(data['met']);
-      }
-
-      // Check for band power
-      if (data.containsKey('pow')) {
-        _processBandPowerData(data['pow']);
-      }
+    if (feedbackType == DeviceFeedbackType.notification) {
+      // Special case: show a local push instead of the snackbar banner
+      final title = connected
+          ? '🧠 EMOTIV Headset Connected'
+          : '🔌 EMOTIV Headset Disconnected';
+      final body = connected
+          ? 'Your headset is ready. CalmTrace can now track your EEG.'
+          : 'Your headset was disconnected from CalmTrace.';
+      await _notificationService.showLocalNotification(
+        title: title,
+        body: body,
+      );
+    } else if (ctx != null && ctx.mounted) {
+      // vibration, ring, none — all handled by existing triggerFeedback
+      await _feedbackService.triggerFeedback(ctx);
     }
+  }
+
+  void _handleDataStream(Map<String, dynamic> data) {
+    if (data.containsKey('eeg')) _processEEGData(data['eeg']);
+    if (data.containsKey('met')) _processMetricsData(data['met']);
+    if (data.containsKey('pow')) _processBandPowerData(data['pow']);
   }
 
   void _processEEGData(dynamic eegData) {
     if (eegData is! List) return;
 
-    final channelNames = [
+    const channelNames = [
       'AF3',
       'F7',
       'F3',
@@ -418,12 +500,9 @@ class EmotivService {
       }
     }
 
-    final eegPoint = EEGDataPoint(
-      channels: channels,
-      timestamp: DateTime.now(),
+    _eegDataController.add(
+      EEGDataPoint(channels: channels, timestamp: DateTime.now()),
     );
-
-    _eegDataController.add(eegPoint);
   }
 
   void _processMetricsData(dynamic metData) {
@@ -444,191 +523,132 @@ class EmotivService {
   }
 
   void _processBandPowerData(dynamic powData) {
-    // Band power can be used for additional analysis
     debugPrint('📊 [EmotivService] Band power data received');
   }
 
-  /// Check if user is logged in
+  // ─────────────────────────────────────────────
+  // Send requests
+  // ─────────────────────────────────────────────
+
+  void sendRequestToCortex(String json) {
+    if (!_wsConnected || _channel == null) {
+      debugPrint('❌ [EmotivService] Cannot send — WebSocket not connected');
+      return;
+    }
+    debugPrint('📤 [EmotivService] Sending: $json');
+    _channel!.sink.add(json);
+  }
+
+  // ─────────────────────────────────────────────
+  // API calls
+  // ─────────────────────────────────────────────
+
   Future<void> checkUserLogin() async {
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.getUserLoggedInRequestId},
-      "method": "getUserLogin"
-    }
-    ''';
-    sendRequestToCortex(json);
-  }
-
-  /// Login with EMOTIV account
-  Future<bool> login() async {
-    debugPrint('🔐 [EmotivService] Logging in...');
-    _updateStatus(EmotivConnectionStatus.authenticating);
-
-    try {
-      final code = await authenticateWithCortex(EmotivConstants.clientId);
-      debugPrint(
-        '🔑 [EmotivService] Auth code: ${code.isNotEmpty ? "received" : "empty"}',
-      );
-
-      if (code.isEmpty) {
-        _updateStatus(EmotivConnectionStatus.error);
-        return false;
-      }
-
-      final json =
-          '''
-      { 
-        "jsonrpc": "2.0",
-        "id": ${EmotivConstants.loginRequestId},
-        "method": "loginWithAuthenticationCode",
-        "params": {
-          "clientId": "${EmotivConstants.clientId}",
-          "clientSecret": "${EmotivConstants.clientSecret}",
-          "code": "$code"
-        } 
-      }
-      ''';
-      sendRequestToCortex(json);
-
-      return true;
-    } catch (e) {
-      debugPrint('❌ [EmotivService] Login error: $e');
-      _updateStatus(EmotivConnectionStatus.error);
-      return false;
-    }
-  }
-
-  /// Logout
-  void logout() {
-    if (_userName == null) return;
-
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.logoutRequestId},
-      "method": "logout",
-      "params": {
-        "username": "$_userName"
-      } 
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.getUserLoggedInRequestId,
+        'method': 'getUserLogin',
+      }),
+    );
   }
 
   /// Authorize and get cortex token
   Future<void> authorize() async {
     debugPrint('🔐 [EmotivService] Authorizing...');
 
-    final licenseParam = EmotivConstants.licenseId.isNotEmpty
-        ? '"license": "${EmotivConstants.licenseId}",'
-        : '';
+    final params = <String, dynamic>{
+      'clientId': EmotivConstants.clientId,
+      'clientSecret': EmotivConstants.clientSecret,
+      'debit': EmotivConstants.debitNumber,
+    };
 
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.authorizeRequestId},
-      "method": "authorize",
-      "params": {
-        "clientId": "${EmotivConstants.clientId}",
-        "clientSecret": "${EmotivConstants.clientSecret}",
-        "debit": ${EmotivConstants.debitNumber}
-        $licenseParam
-      } 
+    if (EmotivConstants.licenseId.isNotEmpty) {
+      params['license'] = EmotivConstants.licenseId;
     }
-    ''';
-    sendRequestToCortex(json);
+
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.authorizeRequestId,
+        'method': 'authorize',
+        'params': params,
+      }),
+    );
   }
 
-  /// Query available headsets
+  void logout() {
+    if (_userName == null) return;
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.logoutRequestId,
+        'method': 'logout',
+        'params': {'username': _userName},
+      }),
+    );
+  }
+
   void queryHeadsets() {
     debugPrint('🔍 [EmotivService] Querying headsets...');
-
-    final json =
-        '''
-    { 
-      "id": ${EmotivConstants.queryHeadsetRequestId},
-      "jsonrpc": "2.0",
-      "method": "queryHeadsets"
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'id': EmotivConstants.queryHeadsetRequestId,
+        'jsonrpc': '2.0',
+        'method': 'queryHeadsets',
+      }),
+    );
   }
 
-  /// Connect to a headset
   Future<void> connectHeadset(String headsetId, BuildContext? context) async {
     debugPrint('🔗 [EmotivService] Connecting to headset: $headsetId');
-
-    final json =
-        '''
-    { 
-      "id": ${EmotivConstants.controlDeviceRequestId},
-      "jsonrpc": "2.0",
-      "method": "controlDevice",
-      "params": {
-        "command": "connect",
-        "headset": "$headsetId"
-      }
-    }
-    ''';
-    sendRequestToCortex(json);
-
-    // Trigger feedback when connected
-    if (context != null && context.mounted) {
-      await _feedbackService.triggerFeedback(context);
-    }
+    sendRequestToCortex(
+      jsonEncode({
+        'id': EmotivConstants.controlDeviceRequestId,
+        'jsonrpc': '2.0',
+        'method': 'controlDevice',
+        'params': {'command': 'connect', 'headset': headsetId},
+      }),
+    );
+    // Note: actual feedback fires in _onHeadsetConnectionEvent
+    // when the server confirms with warning code 104.
   }
 
-  /// Disconnect from headset
   void disconnectHeadset(String headsetId) {
     debugPrint('🔌 [EmotivService] Disconnecting headset: $headsetId');
-
-    final json =
-        '''
-    { 
-      "id": ${EmotivConstants.controlDeviceRequestId},
-      "jsonrpc": "2.0",
-      "method": "controlDevice",
-      "params": {
-        "command": "disconnect",
-        "headset": "$headsetId"
-      }
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'id': EmotivConstants.controlDeviceRequestId,
+        'jsonrpc': '2.0',
+        'method': 'controlDevice',
+        'params': {'command': 'disconnect', 'headset': headsetId},
+      }),
+    );
   }
 
-  /// Create a session for data streaming
   Future<void> createSession() async {
     if (_cortexToken == null || _activeHeadsetId == null) {
       debugPrint(
-        '❌ [EmotivService] Cannot create session - missing token or headset',
+        '❌ [EmotivService] Cannot create session — missing token or headset',
       );
       return;
     }
 
     debugPrint('📝 [EmotivService] Creating session...');
-
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.createSessionRequestId},
-      "method": "createSession",
-      "params": {
-        "cortexToken": "$_cortexToken",
-        "headset": "$_activeHeadsetId",
-        "status": "active"
-      } 
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.createSessionRequestId,
+        'method': 'createSession',
+        'params': {
+          'cortexToken': _cortexToken,
+          'headset': _activeHeadsetId,
+          'status': 'active',
+        },
+      }),
+    );
   }
 
-  /// Subscribe to data streams
   void subscribeData({
     bool eeg = true,
     bool metrics = true,
@@ -637,85 +657,96 @@ class EmotivService {
   }) {
     if (_cortexToken == null || _sessionId == null) {
       debugPrint(
-        '❌ [EmotivService] Cannot subscribe - missing token or session',
+        '❌ [EmotivService] Cannot subscribe — missing token or session',
       );
       return;
     }
 
-    final streams = <String>[];
-    if (eeg) streams.add('eeg');
-    if (metrics) streams.add('met');
-    if (bandPower) streams.add('pow');
-    if (motion) streams.add('mot');
+    final streams = <String>[
+      if (eeg) 'eeg',
+      if (metrics) 'met',
+      if (bandPower) 'pow',
+      if (motion) 'mot',
+    ];
 
     debugPrint('📊 [EmotivService] Subscribing to: $streams');
-
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.subscribeDataRequestId},
-      "method": "subscribe",
-      "params": {
-        "cortexToken": "$_cortexToken",
-        "session": "$_sessionId",
-        "streams": ${jsonEncode(streams)}
-      } 
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.subscribeDataRequestId,
+        'method': 'subscribe',
+        'params': {
+          'cortexToken': _cortexToken,
+          'session': _sessionId,
+          'streams': streams,
+        },
+      }),
+    );
   }
 
-  /// Unsubscribe from data streams
   void unsubscribeData({List<String>? streams}) {
     if (_cortexToken == null || _sessionId == null) return;
 
-    final streamsToUnsubscribe = streams ?? ['eeg', 'met', 'pow'];
-
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.unsubscribeDataRequestId},
-      "method": "unsubscribe",
-      "params": {
-        "cortexToken": "$_cortexToken",
-        "session": "$_sessionId",
-        "streams": ${jsonEncode(streamsToUnsubscribe)}
-      } 
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.unsubscribeDataRequestId,
+        'method': 'unsubscribe',
+        'params': {
+          'cortexToken': _cortexToken,
+          'session': _sessionId,
+          'streams': streams ?? ['eeg', 'met', 'pow'],
+        },
+      }),
+    );
   }
 
-  /// Close session
   void closeSession() {
     if (_cortexToken == null || _sessionId == null) return;
-
     debugPrint('📝 [EmotivService] Closing session...');
-
-    final json =
-        '''
-    { 
-      "jsonrpc": "2.0",
-      "id": ${EmotivConstants.updateSessionRequestId},
-      "method": "updateSession",
-      "params": {
-        "cortexToken": "$_cortexToken",
-        "session": "$_sessionId",
-        "status": "close"
-      } 
-    }
-    ''';
-    sendRequestToCortex(json);
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': EmotivConstants.updateSessionRequestId,
+        'method': 'updateSession',
+        'params': {
+          'cortexToken': _cortexToken,
+          'session': _sessionId,
+          'status': 'close',
+        },
+      }),
+    );
 
     _sessionId = null;
     _updateStatus(EmotivConnectionStatus.connected);
   }
 
-  /// Connect with mock data (for testing without headset)
+  // ─────────────────────────────────────────────
+  // Full connection flow
+  // ─────────────────────────────────────────────
+
+  Future<bool> fullConnect(BuildContext context) async {
+    appContext = context;
+    final initialized = await initialize();
+    if (!initialized) return false;
+
+    await checkUserLogin();
+    await Future.delayed(const Duration(seconds: 1));
+
+    await authorize();
+    await Future.delayed(const Duration(seconds: 2));
+
+    queryHeadsets();
+    return true;
+  }
+
+  // ─────────────────────────────────────────────
+  // Mock mode
+  // ─────────────────────────────────────────────
+
   Future<bool> connectMock(BuildContext? context) async {
     debugPrint('🎭 [EmotivService] Connecting with mock data...');
+    if (context != null) appContext = context;
 
     _useMockData = true;
     _activeHeadsetId = 'MOCK-EPOC-001';
@@ -723,18 +754,15 @@ class EmotivService {
       EmotivHeadset(id: 'MOCK-EPOC-001', isVirtual: true, status: 'connected'),
     ];
     _headsetController.add(_headsets);
-
     _updateStatus(EmotivConnectionStatus.connected);
 
-    if (context != null && context.mounted) {
-      await _feedbackService.triggerFeedback(context);
-    }
+    // Simulate the connection event feedback for mock mode too
+    await _onHeadsetConnectionEvent(connected: true);
 
     debugPrint('✅ [EmotivService] Mock connection established');
     return true;
   }
 
-  /// Start mock data streaming
   void startMockStreaming() {
     if (!_useMockData) return;
 
@@ -746,7 +774,6 @@ class EmotivService {
       final random = Random();
       final now = DateTime.now();
 
-      // Simulate EEG data
       final eegData = EEGDataPoint(
         channels: {
           'AF3': random.nextDouble() * 100,
@@ -773,93 +800,69 @@ class EmotivService {
       );
       _eegDataController.add(eegData);
 
-      // Simulate performance metrics every 2 seconds
       if (now.second % 2 == 0 && now.millisecond < 500) {
-        final metrics = EmotivMetrics(
-          engagement: 0.4 + random.nextDouble() * 0.4,
-          excitement: 0.3 + random.nextDouble() * 0.3,
-          stress: 0.2 + random.nextDouble() * 0.5,
-          relaxation: 0.3 + random.nextDouble() * 0.4,
-          interest: 0.4 + random.nextDouble() * 0.3,
-          focus: 0.5 + random.nextDouble() * 0.3,
-          timestamp: now,
+        _metricsController.add(
+          EmotivMetrics(
+            engagement: 0.4 + random.nextDouble() * 0.4,
+            excitement: 0.3 + random.nextDouble() * 0.3,
+            stress: 0.2 + random.nextDouble() * 0.5,
+            relaxation: 0.3 + random.nextDouble() * 0.4,
+            interest: 0.4 + random.nextDouble() * 0.3,
+            focus: 0.5 + random.nextDouble() * 0.3,
+            timestamp: now,
+          ),
         );
-        _metricsController.add(metrics);
       }
     });
   }
 
-  /// Stop mock streaming
   void stopMockStreaming() {
     _mockDataTimer?.cancel();
     _mockDataTimer = null;
   }
 
+  // ─────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────
+
   void _updateStatus(EmotivConnectionStatus newStatus) {
     _status = newStatus;
     _statusController.add(newStatus);
-    debugPrint('🧠 [EmotivService] Status: ${newStatus.label}');
+    debugPrint('🧠 [EmotivService] Status → ${newStatus.label}');
   }
 
-  /// Full connection flow
-  Future<bool> fullConnect(BuildContext context) async {
-    // 1. Initialize
-    final initialized = await initialize();
-    if (!initialized) return false;
-
-    // 2. Login
-    final loggedIn = await login();
-    if (!loggedIn) return false;
-
-    // Wait for login response
-    await Future.delayed(const Duration(seconds: 2));
-
-    // 3. Authorize
-    await authorize();
-
-    // Wait for authorization
-    await Future.delayed(const Duration(seconds: 2));
-
-    // 4. Query headsets
-    queryHeadsets();
-
-    return true;
-  }
-
-  /// Get setup instructions
-  String getSetupInstructions() {
-    return '''
+  String getSetupInstructions() => '''
 To connect your EMOTIV headset:
 
-1. Install EMOTIV App on your phone
+1. Install EMOTIV App on your computer (Cortex runs on desktop)
 2. Create an account at emotiv.com
-3. Pair your headset via Bluetooth
-4. Get developer credentials at emotiv.com/developer
-5. Update clientId and clientSecret in the app
-6. Ensure headset sensors have good contact
+3. Register a Cortex App at emotiv.com/developer
+4. Add credentials to .env as EMOTIV_API_KEY and EMOTIV_API_SECRET
+5. Launch EMOTIV App — starts the Cortex server on localhost:6868
+6. Pair your headset via the EMOTIV App
+7. Run CalmTrace and connect
 
-Supported headsets:
-- EMOTIV EPOC X
-- EMOTIV EPOC+
-- EMOTIV EPOC Flex
-- EMOTIV INSIGHT
-- EMOTIV MN8
+Supported headsets: EPOC X, EPOC+, EPOC Flex, INSIGHT, INSIGHT 2.0, MN8
 ''';
-  }
 
-  /// Disconnect and cleanup
+  // ─────────────────────────────────────────────
+  // Disconnect & dispose
+  // ─────────────────────────────────────────────
+
   Future<void> disconnect() async {
     debugPrint('🔌 [EmotivService] Disconnecting...');
 
     stopMockStreaming();
 
-    if (_sessionId != null) {
-      closeSession();
-    }
-
+    if (_sessionId != null) closeSession();
     if (_activeHeadsetId != null && !_useMockData) {
       disconnectHeadset(_activeHeadsetId!);
     }
+
+    await _wsSubscription?.cancel();
+    await _channel?.sink.close();
+    _channel = null;
+    _wsConnected = false;
 
     _cortexToken = null;
     _sessionId = null;
@@ -872,12 +875,8 @@ Supported headsets:
 
   void dispose() {
     stopMockStreaming();
-
-    for (final sub in _cortexSubscriptions) {
-      sub.cancel();
-    }
-    _cortexSubscriptions.clear();
-
+    _wsSubscription?.cancel();
+    _channel?.sink.close();
     _statusController.close();
     _eegDataController.close();
     _metricsController.close();

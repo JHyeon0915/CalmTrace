@@ -39,6 +39,7 @@
 /frontend/.pub-cache/
 /frontend/.pub/
 /frontend/build/
+/frontend/ios/build
 
 # Symbolication related
 /frontend/app.*.symbols

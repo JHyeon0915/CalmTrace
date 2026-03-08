@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'notification_service.dart';
 
 /// Device feedback types
 enum DeviceFeedbackType { vibration, ring, notification, none }
@@ -92,7 +93,7 @@ class DeviceFeedbackService {
         break;
       case DeviceFeedbackType.notification:
         if (context.mounted) {
-          _showNotificationBanner(context);
+          _triggerPushNotification(context);
         }
         break;
       case DeviceFeedbackType.none:
@@ -148,6 +149,16 @@ class DeviceFeedbackService {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 3),
       ),
+    );
+  }
+
+  // Trigger a push notification
+  Future<void> _triggerPushNotification(BuildContext context) async {
+    final notificationService = NotificationService();
+    await notificationService.showLocalNotification(
+      title: 'Device Connected',
+      body: 'EMOTIV headset is ready',
+      type: 'headset_event',
     );
   }
 
