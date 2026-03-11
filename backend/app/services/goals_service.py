@@ -180,15 +180,18 @@ class GoalsService:
         streak_updated = False
         
         if not already_completed:
-            streak_result = await self.streak_service.complete_goal(user_id)
-            streak_updated = True
-            streak_data = {
-                "streakCount": streak_result["streak_count"],
-                "isNewStreak": streak_result["is_new_streak"],
-                "shouldCelebrate": streak_result["should_celebrate"],
-                "message": streak_result["message"],
-                "milestoneReached": streak_result.get("milestone_reached"),
-            }
+            all_completed = completed_count == total_count  # Check if both done
+
+            if all_completed:
+                streak_result = await self.streak_service.complete_goal(user_id)
+                streak_updated = True
+                streak_data = {
+                    "streakCount": streak_result["streak_count"],
+                    "isNewStreak": streak_result["is_new_streak"],
+                    "shouldCelebrate": streak_result["should_celebrate"],
+                    "message": streak_result["message"],
+                    "milestoneReached": streak_result.get("milestone_reached"),
+                }
         
         return {
             "success": True,
