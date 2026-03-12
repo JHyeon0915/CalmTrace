@@ -13,6 +13,7 @@ import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
 import 'guided_breathing_screen.dart';
+import 'ai_coach_screen.dart';
 import 'tracking_screen.dart';
 import '../services/stress_prediction_service.dart';
 import 'package:flutter/foundation.dart';
@@ -187,12 +188,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         break;
 
       case GoalDestination.chat:
-        // TODO: Navigate to AI Coach chat
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('AI Coach coming soon!')),
-          );
-        }
+        // Navigate to AI Coach chat
+        completed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (context) => const AICoachScreen()),
+        );
         return;
     }
 
