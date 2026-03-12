@@ -26,10 +26,14 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSBonjourServices</key>
+	<array/>
 	<key>NSHealthShareUsageDescription</key>
 	<string>CalmTrace needs access to your health data to monitor stress levels using HRV and respiratory rate.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>CalmTrace needs to write health data.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app requires access to devices on your local network</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
