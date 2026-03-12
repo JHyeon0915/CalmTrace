@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/health_data_service.dart';
+import '../widgets/stress_gauge.dart';
 
 class TrackingScreen extends StatefulWidget {
   const TrackingScreen({super.key});
@@ -26,10 +27,6 @@ class _TrackingScreenState extends State<TrackingScreen>
   String _selectedRange = '1d';
   bool _analysisExpanded = false;
 
-  // Animation controllers
-  late AnimationController _gaugeController;
-  late Animation<double> _gaugeAnimation;
-
   final List<Map<String, String>> _timeRanges = [
     {'value': '1d', 'label': '1 day'},
     {'value': '2d', 'label': '2 days'},
@@ -48,20 +45,8 @@ class _TrackingScreenState extends State<TrackingScreen>
   @override
   void initState() {
     super.initState();
-    _setupAnimations();
     _setupListeners();
     _loadData();
-  }
-
-  void _setupAnimations() {
-    _gaugeController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-
-    _gaugeAnimation = Tween<double>(begin: 0, end: _stressLevel / 100).animate(
-      CurvedAnimation(parent: _gaugeController, curve: Curves.easeOutCubic),
-    );
   }
 
   void _setupListeners() {
@@ -87,13 +72,11 @@ class _TrackingScreenState extends State<TrackingScreen>
         _healthData = data;
         _isLoading = false;
       });
-      _gaugeController.forward();
     }
   }
 
   @override
   void dispose() {
-    _gaugeController.dispose();
     _statusSubscription?.cancel();
     _dataSubscription?.cancel();
     super.dispose();
@@ -152,18 +135,6 @@ class _TrackingScreenState extends State<TrackingScreen>
       default:
         return '';
     }
-  }
-
-  Color _getStressColor(int level) {
-    if (level <= 40) return AppColors.stressLow;
-    if (level <= 70) return AppColors.stressMedium;
-    return AppColors.stressHigh;
-  }
-
-  String _getStressLabel(int level) {
-    if (level <= 40) return 'Low Stress';
-    if (level <= 70) return 'Medium Stress';
-    return 'High Stress';
   }
 
   Color _getConfidenceColor(int confidence) {
@@ -246,18 +217,7 @@ class _TrackingScreenState extends State<TrackingScreen>
       ),
       child: Column(
         children: [
-          // Stress Gauge
-          AnimatedBuilder(
-            animation: _gaugeAnimation,
-            builder: (context, child) {
-              return _StressGauge(
-                level: (_gaugeAnimation.value * 100).toInt(),
-                maxLevel: 100,
-                color: _getStressColor(_stressLevel),
-                label: _getStressLabel(_stressLevel),
-              );
-            },
-          ),
+          StressGauge(level: _stressLevel, maxLevel: 100),
           const SizedBox(height: AppSpacing.lg),
 
           // Trend indicator
@@ -609,77 +569,6 @@ class _TrackingScreenState extends State<TrackingScreen>
                 color: AppColors.textHint,
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// Custom Stress Gauge Widget
-class _StressGauge extends StatelessWidget {
-  final int level;
-  final int maxLevel;
-  final Color color;
-  final String label;
-
-  const _StressGauge({
-    required this.level,
-    required this.maxLevel,
-    required this.color,
-    required this.label,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 160,
-      height: 160,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Background circle
-          SizedBox(
-            width: 160,
-            height: 160,
-            child: CircularProgressIndicator(
-              value: 1,
-              strokeWidth: 16,
-              backgroundColor: AppColors.border,
-              valueColor: AlwaysStoppedAnimation<Color>(AppColors.border),
-            ),
-          ),
-          // Progress arc - starts from top (12 o'clock)
-          SizedBox(
-            width: 160,
-            height: 160,
-            child: CircularProgressIndicator(
-              value: level / maxLevel,
-              strokeWidth: 16,
-              backgroundColor: Colors.transparent,
-              valueColor: AlwaysStoppedAnimation<Color>(color),
-              strokeCap: StrokeCap.round,
-            ),
-          ),
-          // Center text
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '$level',
-                style: AppTextStyles.h1.copyWith(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              Text(
-                label,
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
           ),
         ],
       ),

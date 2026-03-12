@@ -8,6 +8,7 @@ import '../models/daily_tip_model.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import '../widgets/streak_celebration_modal.dart';
 import '../widgets/set_goals_modal.dart';
+import '../widgets/stress_gauge.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
@@ -405,79 +406,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Current Stress Level', style: AppTextStyles.h4),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.stressLow.withValues(alpha: 0.15),
-                  borderRadius: AppRadius.roundBorder,
-                ),
-                child: Text(
-                  'Low',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: AppColors.stressLow,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [Text('Current Stress Level', style: AppTextStyles.h4)],
           ),
           const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            width: 160,
-            height: 160,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 160,
-                  height: 160,
-                  child: CircularProgressIndicator(
-                    value: 1.0,
-                    strokeWidth: 12,
-                    backgroundColor: AppColors.border,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.border),
-                  ),
-                ),
-                SizedBox(
-                  width: 160,
-                  height: 160,
-                  child: CircularProgressIndicator(
-                    value: 0.35,
-                    strokeWidth: 12,
-                    backgroundColor: Colors.transparent,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.textSecondary,
-                    ),
-                    strokeCap: StrokeCap.round,
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '35',
-                      style: AppTextStyles.h1.copyWith(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      'Low Stress',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+          StressGauge(level: 80, maxLevel: 100),
           const SizedBox(height: AppSpacing.lg),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -575,7 +508,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(height: AppSpacing.md),
 
-        // Dynamic goals list
         if (_dailyGoals.isEmpty)
         // Show default goals if none set
         ...[
@@ -916,14 +848,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final stressService = StressPredictionService();
 
-    // Step 1: Check model status
     debugPrint('📍 Step 1: Checking model status...');
     final status = await stressService.getModelStatus();
     debugPrint('   Models loaded: ${status.modelsLoaded}');
     debugPrint('   Available models: ${status.availableModels}');
     debugPrint('');
 
-    // Step 2: Generate mock health data
     debugPrint('📍 Step 2: Generating mock health data...');
 
     // Simulate Garmin smartwatch data
@@ -958,7 +888,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     debugPrint('   HR values: $mockHrValues');
     debugPrint('');
 
-    // Step 3: Make prediction
     debugPrint('📍 Step 3: Calling ML API...');
 
     try {
