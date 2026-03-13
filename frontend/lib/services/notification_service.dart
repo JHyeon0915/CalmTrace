@@ -31,16 +31,28 @@ class NotificationService {
 
     if (settings.authorizationStatus == AuthorizationStatus.authorized ||
         settings.authorizationStatus == AuthorizationStatus.provisional) {
-      // Get FCM token
-      final token = await _messaging.getToken();
+      // Wait for APNS token to be ready (iOS only)
+      String? token;
+      for (int i = 0; i < 5; i++) {
+        try {
+          token = await _messaging.getToken();
+          break;
+        } catch (e) {
+          print('🔔 FCM token attempt ${i + 1} failed, retrying...');
+          await Future.delayed(const Duration(seconds: 2));
+        }
+      }
+
       if (token != null) {
-        debugPrint('🔔 FCM Token: ${token.substring(0, 20)}...');
+        print('🔔 FCM Token: ${token.substring(0, 20)}...');
         await registerDevice(token);
+      } else {
+        print('❌ FCM token unavailable after retries');
       }
 
       // Listen for token refresh
       _messaging.onTokenRefresh.listen((newToken) async {
-        debugPrint('🔔 FCM Token refreshed');
+        print('🔔 FCM Token refreshed');
         await registerDevice(newToken);
       });
     }
@@ -58,12 +70,12 @@ class NotificationService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        debugPrint('✅ Device registered: ${data['device_id']}');
+        print('✅ Device registered: ${data['device_id']}');
       } else {
-        debugPrint('❌ Failed to register device: ${response.body}');
+        print('❌ Failed to register device: ${response.body}');
       }
     } catch (e) {
-      debugPrint('❌ Error registering device: $e');
+      print('❌ Error registering device: $e');
     }
   }
 
@@ -71,6 +83,8 @@ class NotificationService {
 
   Future<void> initializeLocal() async {
     if (_localInitialized) return;
+    print('🔔 [NotificationService] Initializing local notifications...');
+
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
@@ -88,6 +102,7 @@ class NotificationService {
 
     await _localNotifications.initialize(settings: initializationSettings);
     _localInitialized = true;
+    print('🔔 [NotificationService] Local notifications initialized');
   }
 
   Future<void> showLocalNotification({
