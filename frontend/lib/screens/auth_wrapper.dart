@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import 'login_screen.dart';
 import 'dashboard_screen.dart';
 
@@ -29,8 +30,10 @@ class AuthWrapper extends StatelessWidget {
           );
         }
 
-        // If user is logged in, show dashboard; otherwise show login
+        // If user is logged in
         if (snapshot.hasData && snapshot.data != null) {
+          // Register device for push notifications on login
+          NotificationService().initializeFCM();
           return const DashboardScreen();
         }
 
