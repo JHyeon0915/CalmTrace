@@ -448,6 +448,7 @@ class EmotivService {
   Future<void> _onHeadsetConnectionEvent({required bool connected}) async {
     final ctx = appContext;
     final feedbackType = await _feedbackService.getFeedbackType();
+    print('🔔 [EmotivService] Feedback type: $feedbackType');
 
     if (feedbackType == DeviceFeedbackType.notification) {
       // Special case: show a local push instead of the snackbar banner

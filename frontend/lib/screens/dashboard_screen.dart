@@ -17,6 +17,7 @@ import 'ai_coach_screen.dart';
 import 'tracking_screen.dart';
 import '../services/stress_prediction_service.dart';
 import 'package:flutter/foundation.dart';
+import '../services/notification_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -781,12 +782,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
 
-        // Debug: Test ML Model Button
-        if (kDebugMode) ...[
-          const SizedBox(height: AppSpacing.lg),
-          _buildTestMLButton(),
-        ],
+        // Test elements
+        const SizedBox(height: AppSpacing.lg),
+        _buildTestMLButton(),
+        _buildNotificationButton(),
       ],
+    );
+  }
+
+  Widget _buildNotificationButton() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: AppRadius.smBorder,
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _testNotification,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Test Headset Notification'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -972,5 +999,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     debugPrint('');
     debugPrint('════════════════════════════════════════════════════════════');
     debugPrint('');
+  }
+}
+
+Future<void> _testNotification() async {
+  debugPrint('🔔 Testing notification directly...');
+  final notifService = NotificationService();
+
+  // Step 1: test local notification directly
+  try {
+    await notifService.showLocalNotification(
+      title: '🔔 Notification successfully sent',
+      body: 'Notification service is working correctly.',
+    );
+    debugPrint('✅ showLocalNotification called without error');
+  } catch (e) {
+    debugPrint('❌ showLocalNotification failed: $e');
   }
 }
