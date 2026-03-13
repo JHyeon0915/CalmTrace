@@ -28,9 +28,9 @@ class CelebrationSeenResponse(BaseModel):
 class GoalType(str, Enum):
     BREATHING = "breathing"
     STRESS_CHECK = "stress_check"
-    MINDFULNESS = "mindfulness"
-    COGNITIVE_REFRAMING = "cognitive_reframing"
-    CUSTOM = "custom"
+    THERAPY = "therapy"
+    GAMES = "games"
+    CHAT = "chat"
 
 
 class Goal(BaseModel):

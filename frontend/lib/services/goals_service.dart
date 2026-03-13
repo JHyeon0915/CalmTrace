@@ -4,6 +4,7 @@ import '../network/api_client.dart';
 import '../models/goal_model.dart';
 
 class GoalsService {
+  static VoidCallback? onGoalCompleted;
   final ApiClient _apiClient = ApiClient();
 
   /// Get today's daily goals

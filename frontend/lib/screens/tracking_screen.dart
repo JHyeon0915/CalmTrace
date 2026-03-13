@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/health_data_service.dart';
+import '../services/goals_service.dart';
 import '../widgets/stress_gauge.dart';
 
 class TrackingScreen extends StatefulWidget {
@@ -15,6 +16,7 @@ class TrackingScreen extends StatefulWidget {
 class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin {
   final HealthDataService _healthService = HealthDataService();
+  final GoalsService _goalsService = GoalsService();
 
   // State
   bool _isLoading = true;
@@ -73,6 +75,9 @@ class _TrackingScreenState extends State<TrackingScreen>
         _isLoading = false;
       });
     }
+
+    // Complete stress_check goal if it's a daily goal
+    await _completeGoalIfNeeded();
   }
 
   @override
@@ -80,6 +85,21 @@ class _TrackingScreenState extends State<TrackingScreen>
     _statusSubscription?.cancel();
     _dataSubscription?.cancel();
     super.dispose();
+  }
+
+  Future<void> _completeGoalIfNeeded() async {
+    try {
+      final goalsData = await _goalsService.getDailyGoals();
+      final match = goalsData.goals.where(
+        (g) => g.goalType == 'stress_check' && !g.isCompleted,
+      );
+      if (match.isNotEmpty) {
+        await _goalsService.completeGoal('stress_check');
+        print('✅ [TrackingScreen] stress_check goal completed');
+      }
+    } catch (e) {
+      print('❌ [TrackingScreen] Error completing goal: $e');
+    }
   }
 
   // Get data points based on selected range

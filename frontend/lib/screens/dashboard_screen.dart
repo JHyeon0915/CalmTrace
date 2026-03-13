@@ -47,6 +47,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _todaysTip = DailyTips.getTodaysTip();
     _loadData();
+    GoalsService.onGoalCompleted = _onAnyGoalCompleted;
   }
 
   Future<void> _loadData() async {
@@ -150,19 +151,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onNavTap(int index) {
+    final previousIndex = _currentIndex;
     setState(() => _currentIndex = index);
+    // Reload when returning home so completions from other screens are reflected
+    if (index == 0 && previousIndex != 0) {
+      _loadData();
+    }
   }
 
   Future<void> _onGoalTap(UserGoal goal) async {
     final goalOption = goal.goalOption;
     if (goalOption == null) return;
 
-    // Navigate based on goal destination
-    bool? completed;
-
     switch (goalOption.destination) {
       case GoalDestination.breathing:
-        completed = await Navigator.push<bool>(
+        // Navigate to guided breathing screen
+        Navigator.push<bool>(
           context,
           MaterialPageRoute(
             builder: (context) => const GuidedBreathingScreen(),
@@ -173,33 +177,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case GoalDestination.tracking:
         // Navigate to tracking page (index 1 in bottom nav)
         setState(() => _currentIndex = 1);
-        completed = true;
         break;
 
       case GoalDestination.therapy:
         // Navigate to therapy hub (index 2 in bottom nav)
         setState(() => _currentIndex = 2);
-        completed = true;
         break;
 
       case GoalDestination.games:
         // Navigate to games (index 3 in bottom nav)
         setState(() => _currentIndex = 3);
-        completed = true;
         break;
 
       case GoalDestination.chat:
-        // Navigate to AI Coach chat
-        completed = await Navigator.push<bool>(
+        Navigator.push<bool>(
           context,
           MaterialPageRoute(builder: (context) => const AICoachScreen()),
         );
-        return;
-    }
-
-    // Complete the goal if navigation was successful
-    if (completed == true && !goal.isCompleted) {
-      await _completeGoal(goal.goalType);
+        break;
     }
   }
 
@@ -236,6 +231,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       debugPrint('❌ Error completing goal: $e');
+    }
+  }
+
+  /// Handle reload and streak modal when any goal is completed
+  Future<void> _onAnyGoalCompleted() async {
+    await _loadData();
+    // Check if streak modal should show
+    final goalsData = await _goalsService.getDailyGoals();
+    final allDone =
+        goalsData.goals.isNotEmpty &&
+        goalsData.goals.every((g) => g.isCompleted);
+    if (allDone && mounted) {
+      final streak = await _streakService.checkAndUpdateStreak();
+      final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
+      if (!hasSeenToday && streak > 0 && mounted) {
+        await _streakService.markCelebrationSeen();
+        _showCelebrationModal(streak, false);
+      }
     }
   }
 
@@ -516,27 +529,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: Icons.air,
             title: 'Practice Breathing',
             iconColor: AppColors.primary,
-            onTap: () async {
-              final result = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const GuidedBreathingScreen(),
-                ),
-              );
-              if (result == true) {
-                _completeGoal('breathing');
-              }
-            },
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const GuidedBreathingScreen(),
+              ),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           _buildDefaultGoalItem(
             icon: Icons.show_chart,
             title: 'Check Stress Levels',
             iconColor: AppColors.warning,
-            onTap: () {
-              setState(() => _currentIndex = 1);
-              _completeGoal('stress_check');
-            },
+            onTap: () => setState(() => _currentIndex = 1),
           ),
         ] else
           // Show user's selected goals

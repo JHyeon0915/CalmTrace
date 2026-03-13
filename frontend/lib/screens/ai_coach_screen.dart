@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/ai_coach_service.dart';
+import '../services/goals_service.dart';
 
 class AICoachScreen extends StatefulWidget {
   const AICoachScreen({super.key});
@@ -15,6 +16,7 @@ class _AICoachScreenState extends State<AICoachScreen> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
   final AICoachService _aiService = AICoachService();
+  final GoalsService _goalsService = GoalsService();
 
   List<AIChatMessage> _messages = [];
   List<QuickResponse> _quickResponses = [];
@@ -23,6 +25,7 @@ class _AICoachScreenState extends State<AICoachScreen> {
   bool _isLoading = true;
   bool _aiAvailable = false;
   int? _currentStressLevel;
+  bool _goalCompleted = false;
 
   @override
   void initState() {
@@ -142,6 +145,27 @@ class _AICoachScreenState extends State<AICoachScreen> {
       });
 
       _scrollToBottom();
+    }
+
+    // Complete chat goal after first successful message
+    if (!_goalCompleted) {
+      _goalCompleted = true;
+      _completeGoalIfNeeded();
+    }
+  }
+
+  Future<void> _completeGoalIfNeeded() async {
+    try {
+      final goalsData = await _goalsService.getDailyGoals();
+      final match = goalsData.goals.where(
+        (g) => g.goalType == 'chat' && !g.isCompleted,
+      );
+      if (match.isNotEmpty) {
+        await _goalsService.completeGoal('chat');
+        debugPrint('✅ [AICoachScreen] chat goal completed');
+      }
+    } catch (e) {
+      debugPrint('❌ [AICoachScreen] Error completing goal: $e');
     }
   }
 
