@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_service.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'dart:io';
+import 'package:audioplayers/audioplayers.dart';
 
 /// Device feedback types
 enum DeviceFeedbackType { vibration, ring, notification, none }
@@ -115,13 +117,18 @@ class DeviceFeedbackService {
 
   /// Trigger sound feedback
   Future<void> _triggerSound() async {
-    // Play ringtone
-    FlutterRingtonePlayer().play(
-      android: AndroidSounds.notification,
-      ios: IosSounds.glass,
-      looping: false, // Android only, stop manually
-      volume: 0.5, // Android only
-    );
+    if (Platform.isAndroid || Platform.isIOS) {
+      FlutterRingtonePlayer().play(
+        android: AndroidSounds.notification,
+        ios: IosSounds.glass,
+        looping: false,
+        volume: 0.5,
+      );
+    } else {
+      // macOS fallback — use notification sound
+      final player = AudioPlayer();
+      await player.play(AssetSource('audio/alert.mp3'));
+    }
   }
 
   /// Show notification banner

@@ -89,7 +89,7 @@ class NotificationService {
       '@mipmap/ic_launcher',
     );
 
-    const iosSettings = DarwinInitializationSettings(
+    const darwinSettings = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestSoundPermission: true,
     );
@@ -97,7 +97,8 @@ class NotificationService {
     InitializationSettings initializationSettings =
         const InitializationSettings(
           android: androidSettings,
-          iOS: iosSettings,
+          iOS: darwinSettings,
+          macOS: darwinSettings,
         );
 
     await _localNotifications.initialize(settings: initializationSettings);
@@ -121,6 +122,7 @@ class NotificationService {
         priority: Priority.high,
       ),
       iOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
+      macOS: DarwinNotificationDetails(presentAlert: true, presentSound: true),
     );
     await _localNotifications.show(
       id: id,
