@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_service.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 /// Device feedback types
 enum DeviceFeedbackType { vibration, ring, notification, none }
@@ -114,8 +115,13 @@ class DeviceFeedbackService {
 
   /// Trigger sound feedback
   Future<void> _triggerSound() async {
-    // Play system sound
-    await SystemSound.play(SystemSoundType.alert);
+    // Play ringtone
+    FlutterRingtonePlayer().play(
+      android: AndroidSounds.notification,
+      ios: IosSounds.glass,
+      looping: false, // Android only, stop manually
+      volume: 0.5, // Android only
+    );
   }
 
   /// Show notification banner
