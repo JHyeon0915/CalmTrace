@@ -18,6 +18,8 @@ import 'tracking_screen.dart';
 import '../services/stress_prediction_service.dart';
 import 'package:flutter/foundation.dart';
 import '../services/notification_service.dart';
+import '../services/device_feedback_service.dart';
+import '../services/emotiv_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -48,6 +50,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _todaysTip = DailyTips.getTodaysTip();
     _loadData();
     GoalsService.onGoalCompleted = _onAnyGoalCompleted;
+
+    // Initialize EMOTIV Cortex connection
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      EmotivService().fullConnect(context);
+    });
   }
 
   Future<void> _loadData() async {
@@ -815,6 +822,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
               child: const Text('Test Headset Notification'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                final feedback = DeviceFeedbackService();
+                await feedback.triggerFeedback(context);
+                debugPrint('✅ triggerFeedback called');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Test Device Feedback'),
             ),
           ),
         ],

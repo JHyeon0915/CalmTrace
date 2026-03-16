@@ -36,7 +36,8 @@ class EmotivConstants {
       dotenv.env['EMOTIV_API_SECRET'] ?? 'YOUR_CLIENT_SECRET';
   static const String licenseId = '';
   static const int debitNumber = 1;
-  static const String cortexUrl = 'wss://localhost:6868';
+  static final String cortexUrl =
+      dotenv.env['EMOTIV_WS_URL'] ?? 'wss://localhost:6868';
 }
 
 /// EEG data point with timestamp
@@ -229,7 +230,7 @@ class EmotivService {
   // ─────────────────────────────────────────────
 
   Future<bool> initialize() async {
-    debugPrint('🧠 [EmotivService] Initializing Cortex via WebSocket...');
+    print('🧠 [EmotivService] Initializing Cortex via WebSocket...');
     _updateStatus(EmotivConnectionStatus.initializing);
 
     try {
@@ -237,7 +238,7 @@ class EmotivService {
       if (Platform.isAndroid) {
         final locationStatus = await Permission.location.request();
         if (!locationStatus.isGranted) {
-          debugPrint('❌ [EmotivService] Location permission denied');
+          print('❌ [EmotivService] Location permission denied');
           _updateStatus(EmotivConnectionStatus.error);
           return false;
         }
@@ -252,7 +253,7 @@ class EmotivService {
       _updateStatus(EmotivConnectionStatus.disconnected);
       return true;
     } catch (e) {
-      debugPrint('❌ [EmotivService] Initialization error: $e');
+      print('❌ [EmotivService] Initialization error: $e');
       _updateStatus(EmotivConnectionStatus.error);
       return false;
     }
@@ -261,15 +262,13 @@ class EmotivService {
   /// Open the WebSocket connection to Cortex
   Future<bool> _connectWebSocket() async {
     try {
-      debugPrint(
-        '🔌 [EmotivService] Connecting to ${EmotivConstants.cortexUrl}...',
-      );
+      print('🔌 [EmotivService] Connecting to ${EmotivConstants.cortexUrl}...');
 
       // EMOTIV uses a self-signed certificate.
       // Create a custom HttpClient that trusts it for development.
       final httpClient = HttpClient()
         ..badCertificateCallback = (cert, host, port) {
-          debugPrint(
+          print(
             '⚠️ [EmotivService] Accepting self-signed cert from $host:$port',
           );
           return true;
@@ -290,10 +289,10 @@ class EmotivService {
       );
 
       _wsConnected = true;
-      debugPrint('✅ [EmotivService] WebSocket connected');
+      print('✅ [EmotivService] WebSocket connected');
       return true;
     } catch (e) {
-      debugPrint('❌ [EmotivService] WebSocket connection failed: $e');
+      print('❌ [EmotivService] WebSocket connection failed: $e');
       return false;
     }
   }
@@ -321,18 +320,18 @@ class EmotivService {
       // Data stream event (has "eeg", "met", "pow", etc.)
       _handleDataStream(data);
     } catch (e) {
-      debugPrint('❌ [EmotivService] Failed to parse message: $e\nRaw: $raw');
+      print('❌ [EmotivService] Failed to parse message: $e\nRaw: $raw');
     }
   }
 
   void _onWebSocketError(dynamic error) {
-    debugPrint('❌ [EmotivService] WebSocket error: $error');
+    print('❌ [EmotivService] WebSocket error: $error');
     _wsConnected = false;
     _updateStatus(EmotivConnectionStatus.error);
   }
 
   void _onWebSocketDone() {
-    debugPrint('🔌 [EmotivService] WebSocket closed');
+    print('🔌 [EmotivService] WebSocket closed');
     _wsConnected = false;
     if (_status != EmotivConnectionStatus.disconnected) {
       _updateStatus(EmotivConnectionStatus.disconnected);
@@ -347,29 +346,41 @@ class EmotivService {
     final id = data['id'] as int?;
     final result = data['result'];
 
-    debugPrint('📨 [EmotivService] Response for request $id');
+    print('📨 [EmotivService] Response for request $id');
 
     switch (id) {
+      case 0: // requestAccess
+        final accessGranted = result['accessGranted'] as bool? ?? false;
+        print('🔑 [EmotivService] Access granted: $accessGranted');
+        if (accessGranted) {
+          authorize(); // no await — fire and forget
+        } else {
+          print(
+            '⚠️ [EmotivService] Open EMOTIV Launcher on Mac and approve access',
+          );
+        }
+        break;
+
       case EmotivConstants.getUserLoggedInRequestId:
         if (result is List && result.isNotEmpty) {
           _userName = result[0]['username'] as String?;
-          debugPrint('👤 [EmotivService] User logged in: $_userName');
+          print('👤 [EmotivService] User logged in: $_userName');
         }
         break;
 
       case EmotivConstants.loginRequestId:
         _userName = result['username'] as String?;
-        debugPrint('✅ [EmotivService] Login successful: $_userName');
+        print('✅ [EmotivService] Login successful: $_userName');
         break;
 
       case EmotivConstants.logoutRequestId:
         _userName = null;
-        debugPrint('👋 [EmotivService] Logged out');
+        print('👋 [EmotivService] Logged out');
         break;
 
       case EmotivConstants.authorizeRequestId:
         _cortexToken = result['cortexToken'] as String?;
-        debugPrint('🔑 [EmotivService] Got cortex token');
+        print('🔑 [EmotivService] Got cortex token');
         if (_cortexToken != null) {
           _updateStatus(EmotivConnectionStatus.connected);
         }
@@ -380,7 +391,7 @@ class EmotivService {
           _headsets = result
               .map((h) => EmotivHeadset.fromJson(h as Map<String, dynamic>))
               .toList();
-          debugPrint('📡 [EmotivService] Found ${_headsets.length} headset(s)');
+          print('📡 [EmotivService] Found ${_headsets.length} headset(s)');
           _headsetController.add(_headsets);
         }
         break;
@@ -388,21 +399,21 @@ class EmotivService {
       case EmotivConstants.createSessionRequestId:
         if (result is Map<String, dynamic>) {
           _sessionId = result['id'] as String?;
-          debugPrint('📝 [EmotivService] Session created: $_sessionId');
+          print('📝 [EmotivService] Session created: $_sessionId');
         }
         break;
 
       case EmotivConstants.subscribeDataRequestId:
-        debugPrint('✅ [EmotivService] Subscribed to data streams');
+        print('✅ [EmotivService] Subscribed to data streams');
         _updateStatus(EmotivConnectionStatus.streaming);
         break;
 
       case EmotivConstants.updateSessionRequestId:
-        debugPrint('📝 [EmotivService] Session updated');
+        print('📝 [EmotivService] Session updated');
         break;
 
       default:
-        debugPrint('📨 [EmotivService] Unhandled response for request $id');
+        print('📨 [EmotivService] Unhandled response for request $id');
     }
   }
 
@@ -411,7 +422,7 @@ class EmotivService {
     final error = data['error'] as Map<String, dynamic>?;
     final code = error?['code'];
     final message = error?['message'];
-    debugPrint('❌ [EmotivService] Request $id error [$code]: $message');
+    print('❌ [EmotivService] Request $id error [$code]: $message');
   }
 
   /// Handles headset connect/disconnect warnings and triggers the
@@ -420,13 +431,13 @@ class EmotivService {
   void _handleWarning(Map<String, dynamic> warning) {
     final code = warning['code'] as int?;
     final message = warning['message'];
-    debugPrint('⚠️ [EmotivService] Warning $code: $message');
+    print('⚠️ [EmotivService] Warning $code: $message');
 
     switch (code) {
       case EmotivConstants.headsetIsConnected:
         final headsetId = (message is Map) ? message['headsetId'] : null;
         _activeHeadsetId = headsetId as String?;
-        debugPrint('🎧 [EmotivService] Headset connected: $_activeHeadsetId');
+        print('🎧 [EmotivService] Headset connected: $_activeHeadsetId');
         queryHeadsets();
 
         // ── Trigger user feedback for headset connection ──
@@ -434,7 +445,7 @@ class EmotivService {
         break;
 
       case EmotivConstants.headsetIsDisconnected:
-        debugPrint('🔌 [EmotivService] Headset disconnected');
+        print('🔌 [EmotivService] Headset disconnected');
         _activeHeadsetId = null;
         queryHeadsets();
 
@@ -520,11 +531,11 @@ class EmotivService {
     );
 
     _metricsController.add(metrics);
-    debugPrint('📊 [EmotivService] Metrics: $metrics');
+    print('📊 [EmotivService] Metrics: $metrics');
   }
 
   void _processBandPowerData(dynamic powData) {
-    debugPrint('📊 [EmotivService] Band power data received');
+    print('📊 [EmotivService] Band power data received');
   }
 
   // ─────────────────────────────────────────────
@@ -533,10 +544,10 @@ class EmotivService {
 
   void sendRequestToCortex(String json) {
     if (!_wsConnected || _channel == null) {
-      debugPrint('❌ [EmotivService] Cannot send — WebSocket not connected');
+      print('❌ [EmotivService] Cannot send — WebSocket not connected');
       return;
     }
-    debugPrint('📤 [EmotivService] Sending: $json');
+    print('📤 [EmotivService] Sending: $json');
     _channel!.sink.add(json);
   }
 
@@ -556,7 +567,7 @@ class EmotivService {
 
   /// Authorize and get cortex token
   Future<void> authorize() async {
-    debugPrint('🔐 [EmotivService] Authorizing...');
+    print('🔐 [EmotivService] Authorizing...');
 
     final params = <String, dynamic>{
       'clientId': EmotivConstants.clientId,
@@ -591,7 +602,7 @@ class EmotivService {
   }
 
   void queryHeadsets() {
-    debugPrint('🔍 [EmotivService] Querying headsets...');
+    print('🔍 [EmotivService] Querying headsets...');
     sendRequestToCortex(
       jsonEncode({
         'id': EmotivConstants.queryHeadsetRequestId,
@@ -602,7 +613,7 @@ class EmotivService {
   }
 
   Future<void> connectHeadset(String headsetId, BuildContext? context) async {
-    debugPrint('🔗 [EmotivService] Connecting to headset: $headsetId');
+    print('🔗 [EmotivService] Connecting to headset: $headsetId');
     sendRequestToCortex(
       jsonEncode({
         'id': EmotivConstants.controlDeviceRequestId,
@@ -616,7 +627,7 @@ class EmotivService {
   }
 
   void disconnectHeadset(String headsetId) {
-    debugPrint('🔌 [EmotivService] Disconnecting headset: $headsetId');
+    print('🔌 [EmotivService] Disconnecting headset: $headsetId');
     sendRequestToCortex(
       jsonEncode({
         'id': EmotivConstants.controlDeviceRequestId,
@@ -629,13 +640,13 @@ class EmotivService {
 
   Future<void> createSession() async {
     if (_cortexToken == null || _activeHeadsetId == null) {
-      debugPrint(
+      print(
         '❌ [EmotivService] Cannot create session — missing token or headset',
       );
       return;
     }
 
-    debugPrint('📝 [EmotivService] Creating session...');
+    print('📝 [EmotivService] Creating session...');
     sendRequestToCortex(
       jsonEncode({
         'jsonrpc': '2.0',
@@ -657,9 +668,7 @@ class EmotivService {
     bool motion = false,
   }) {
     if (_cortexToken == null || _sessionId == null) {
-      debugPrint(
-        '❌ [EmotivService] Cannot subscribe — missing token or session',
-      );
+      print('❌ [EmotivService] Cannot subscribe — missing token or session');
       return;
     }
 
@@ -670,7 +679,7 @@ class EmotivService {
       if (motion) 'mot',
     ];
 
-    debugPrint('📊 [EmotivService] Subscribing to: $streams');
+    print('📊 [EmotivService] Subscribing to: $streams');
     sendRequestToCortex(
       jsonEncode({
         'jsonrpc': '2.0',
@@ -704,7 +713,7 @@ class EmotivService {
 
   void closeSession() {
     if (_cortexToken == null || _sessionId == null) return;
-    debugPrint('📝 [EmotivService] Closing session...');
+    print('📝 [EmotivService] Closing session...');
     sendRequestToCortex(
       jsonEncode({
         'jsonrpc': '2.0',
@@ -734,11 +743,26 @@ class EmotivService {
     await checkUserLogin();
     await Future.delayed(const Duration(seconds: 1));
 
-    await authorize();
+    await requestAccess();
     await Future.delayed(const Duration(seconds: 2));
 
     queryHeadsets();
     return true;
+  }
+
+  Future<void> requestAccess() async {
+    print('🔑 [EmotivService] Requesting access...');
+    sendRequestToCortex(
+      jsonEncode({
+        'jsonrpc': '2.0',
+        'id': 0,
+        'method': 'requestAccess',
+        'params': {
+          'clientId': EmotivConstants.clientId,
+          'clientSecret': EmotivConstants.clientSecret,
+        },
+      }),
+    );
   }
 
   // ─────────────────────────────────────────────
@@ -746,7 +770,7 @@ class EmotivService {
   // ─────────────────────────────────────────────
 
   Future<bool> connectMock(BuildContext? context) async {
-    debugPrint('🎭 [EmotivService] Connecting with mock data...');
+    print('🎭 [EmotivService] Connecting with mock data...');
     if (context != null) appContext = context;
 
     _useMockData = true;
@@ -760,14 +784,14 @@ class EmotivService {
     // Simulate the connection event feedback for mock mode too
     await _onHeadsetConnectionEvent(connected: true);
 
-    debugPrint('✅ [EmotivService] Mock connection established');
+    print('✅ [EmotivService] Mock connection established');
     return true;
   }
 
   void startMockStreaming() {
     if (!_useMockData) return;
 
-    debugPrint('🎭 [EmotivService] Starting mock data stream...');
+    print('🎭 [EmotivService] Starting mock data stream...');
     _updateStatus(EmotivConnectionStatus.streaming);
 
     _mockDataTimer?.cancel();
@@ -829,7 +853,7 @@ class EmotivService {
   void _updateStatus(EmotivConnectionStatus newStatus) {
     _status = newStatus;
     _statusController.add(newStatus);
-    debugPrint('🧠 [EmotivService] Status → ${newStatus.label}');
+    print('🧠 [EmotivService] Status → ${newStatus.label}');
   }
 
   String getSetupInstructions() => '''
@@ -851,7 +875,7 @@ Supported headsets: EPOC X, EPOC+, EPOC Flex, INSIGHT, INSIGHT 2.0, MN8
   // ─────────────────────────────────────────────
 
   Future<void> disconnect() async {
-    debugPrint('🔌 [EmotivService] Disconnecting...');
+    print('🔌 [EmotivService] Disconnecting...');
 
     stopMockStreaming();
 
