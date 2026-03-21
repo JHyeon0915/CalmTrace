@@ -65,7 +65,7 @@ class NotificationService {
 
       final response = await _apiClient.post(
         '/notifications/devices/register',
-        body: jsonEncode({'platform': platform, 'fcm_token': fcmToken}),
+        body: {'platform': platform, 'fcm_token': fcmToken},
       );
 
       if (response.statusCode == 200) {
