@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
 import '../services/streak_service.dart';
 import '../services/goals_service.dart';
+import '../models/stress_data_source.dart';
 import '../models/goal_model.dart';
 import '../models/daily_tip_model.dart';
 import '../widgets/app_bottom_nav_bar.dart';
@@ -16,7 +18,6 @@ import 'guided_breathing_screen.dart';
 import 'ai_coach_screen.dart';
 import 'tracking_screen.dart';
 import '../services/stress_prediction_service.dart';
-import 'package:flutter/foundation.dart';
 import '../services/notification_service.dart';
 import '../services/device_feedback_service.dart';
 import '../services/emotiv_service.dart';
@@ -41,6 +42,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<UserGoal> _dailyGoals = [];
   int _goalsCompleted = 0;
 
+  // Stress — driven by the shared fusion service
+  StressReading? _currentReading;
+  StreamSubscription<StressReading>? _fusionSubscription;
+
   // Daily tip - gets set once based on today's date
   late final DailyTip _todaysTip;
 
@@ -48,6 +53,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _todaysTip = DailyTips.getTodaysTip();
+
     _loadData();
     GoalsService.onGoalCompleted = _onAnyGoalCompleted;
 
@@ -57,13 +63,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _fusionSubscription?.cancel();
+    super.dispose();
+  }
+
   Future<void> _loadData() async {
-    await Future.wait([_loadStreakData(), _loadGoalsData()]);
+    await Future.wait([_loadStreakData(), _loadGoalsData(), _loadStressData()]);
+  }
+
+  /// Fetch a fresh reading. Safe to call multiple times — the fusion
+  /// service deduplicates and broadcasts to both screens.
+  Future<void> _loadStressData() async {
+    // Only fetch if we have no reading yet (TrackingScreen may have
+    // already populated it via the shared singleton).
+    if (_currentReading != null) return;
   }
 
   Future<void> _loadStreakData() async {
     try {
-      debugPrint('🔄 Loading streak data...');
       final streak = await _streakService.checkAndUpdateStreak();
       debugPrint('📊 Streak from API: $streak');
 
@@ -89,15 +108,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       debugPrint('❌ Error loading streak: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _loadGoalsData() async {
     try {
-      debugPrint('🎯 Loading goals data...');
       final goalsData = await _goalsService.getDailyGoals();
       debugPrint('📋 Goals loaded: ${goalsData.goals.length}');
 
@@ -114,7 +130,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _showCelebrationModal(int streakCount, bool isNewStreak) {
     if (!mounted) return;
-
     StreakCelebrationModal.show(
       context,
       streakCount: streakCount,
@@ -124,19 +139,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _showSetGoalsModal() async {
     final currentGoalTypes = _dailyGoals.map((g) => g.goalType).toList();
-
     final selectedGoals = await SetGoalsModal.show(
       context,
       initialSelectedGoals: currentGoalTypes,
       maxGoals: 2,
     );
-
     if (selectedGoals != null && selectedGoals.isNotEmpty && mounted) {
-      debugPrint('💾 Saving goals: $selectedGoals');
-
       try {
         final goalsData = await _goalsService.setDailyGoals(selectedGoals);
-
         if (mounted) {
           setState(() {
             _dailyGoals = goalsData.goals;
@@ -169,10 +179,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _onGoalTap(UserGoal goal) async {
     final goalOption = goal.goalOption;
     if (goalOption == null) return;
-
     switch (goalOption.destination) {
       case GoalDestination.breathing:
-        // Navigate to guided breathing screen
         Navigator.push<bool>(
           context,
           MaterialPageRoute(
@@ -180,22 +188,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         );
         break;
-
       case GoalDestination.tracking:
         // Navigate to tracking page (index 1 in bottom nav)
         setState(() => _currentIndex = 1);
         break;
-
       case GoalDestination.therapy:
-        // Navigate to therapy hub (index 2 in bottom nav)
         setState(() => _currentIndex = 2);
         break;
-
       case GoalDestination.games:
-        // Navigate to games (index 3 in bottom nav)
         setState(() => _currentIndex = 3);
         break;
-
       case GoalDestination.chat:
         Navigator.push<bool>(
           context,
@@ -205,43 +207,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _completeGoal(String goalType) async {
-    try {
-      debugPrint('🎯 Completing goal: $goalType');
-      final result = await _goalsService.completeGoal(goalType);
-      debugPrint(
-        '📊 Goal complete result - progress: ${result.dailyProgress}/${result.totalGoals}',
-      );
-
-      if (!mounted) return;
-
-      // Reload goals to get updated completion status
-      await _loadGoalsData();
-
-      // Update streak if needed
-      if (result.streakUpdated && result.streakData != null) {
-        setState(() {
-          _streakCount = result.streakData!.streakCount;
-        });
-
-        // Show celebration if needed
-        if (result.streakData!.shouldCelebrate) {
-          final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
-          if (!hasSeenToday && mounted) {
-            await _streakService.markCelebrationSeen();
-            _showCelebrationModal(
-              result.streakData!.streakCount,
-              result.streakData!.isNewStreak,
-            );
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Error completing goal: $e');
-    }
-  }
-
-  /// Handle reload and streak modal when any goal is completed
   Future<void> _onAnyGoalCompleted() async {
     await _loadData();
     // Check if streak modal should show
@@ -258,6 +223,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
   }
+
+  // ──────────────────────────────────────────────────────────
+  // Gauge helpers (mirrors TrackingScreen logic)
+  // ──────────────────────────────────────────────────────────
+
+  GaugeDataState get _gaugeState {
+    if (_isLoading && _currentReading == null) return GaugeDataState.loading;
+    if (_currentReading == null ||
+        _currentReading!.source == DataSource.none ||
+        _currentReading!.stressLevel == null) {
+      return GaugeDataState.noData;
+    }
+    return GaugeDataState.hasData;
+  }
+
+  String _trendLabel() {
+    final level = _currentReading?.stressLevel;
+    if (level == null) return '—';
+    if (level <= 40) return 'Trending down ↓';
+    if (level <= 70) return 'Moderate';
+    return 'Elevated ↑';
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Build
+  // ──────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -352,15 +343,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildStatsRow() {
     final totalGoals = _dailyGoals.isNotEmpty ? _dailyGoals.length : 2;
-
     return Row(
       children: [
         Expanded(
           child: GestureDetector(
             onTap: () {
-              if (_streakCount > 0) {
-                _showCelebrationModal(_streakCount, false);
-              }
+              if (_streakCount > 0) _showCelebrationModal(_streakCount, false);
             },
             child: _buildStatCard(
               icon: '🔥',
@@ -416,6 +404,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildStressLevelCard() {
+    final reading = _currentReading;
+    final confidence = reading?.confidence ?? 0;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -431,51 +422,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [Text('Current Stress Level', style: AppTextStyles.h4)],
           ),
           const SizedBox(height: AppSpacing.lg),
-          StressGauge(level: 80, maxLevel: 100),
-          const SizedBox(height: AppSpacing.lg),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'AI Confidence',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Text(
-                '92 %',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
+
+          // Shared gauge — driven by the exact same StressReading
+          StressGauge(
+            level: reading?.stressLevel,
+            maxLevel: 100,
+            dataState: _gaugeState,
+            dataSourceLabel: reading?.source.label,
           ),
-          const SizedBox(height: AppSpacing.sm),
-          ClipRRect(
-            borderRadius: AppRadius.smBorder,
-            child: LinearProgressIndicator(
-              value: 0.92,
-              minHeight: 8,
-              backgroundColor: AppColors.border,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                AppColors.stressLow,
+
+          const SizedBox(height: AppSpacing.lg),
+
+          // Show confidence bar only when we have real data
+          if (_gaugeState == GaugeDataState.hasData) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'AI Confidence',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                Text(
+                  '$confidence%',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ClipRRect(
+              borderRadius: AppRadius.smBorder,
+              child: LinearProgressIndicator(
+                value: confidence / 100,
+                minHeight: 8,
+                backgroundColor: AppColors.border,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  confidence > 70
+                      ? AppColors.stressLow
+                      : confidence > 30
+                      ? AppColors.stressMedium
+                      : AppColors.stressHigh,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Icon(Icons.trending_down, color: AppColors.stressLow, size: 20),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                'Trending down from yesterday',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
+            const SizedBox(height: AppSpacing.md),
+            Row(
+              children: [
+                Icon(Icons.trending_down, color: AppColors.stressLow, size: 20),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  _trendLabel(),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -528,10 +535,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(height: AppSpacing.md),
-
-        if (_dailyGoals.isEmpty)
         // Show default goals if none set
-        ...[
+        if (_dailyGoals.isEmpty) ...[
           _buildDefaultGoalItem(
             icon: Icons.air,
             title: 'Practice Breathing',
@@ -555,15 +560,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ..._dailyGoals.asMap().entries.map((entry) {
             final index = entry.key;
             final goal = entry.value;
-            final goalOption = goal.goalOption;
-
             return Padding(
               padding: EdgeInsets.only(
                 bottom: index < _dailyGoals.length - 1 ? AppSpacing.sm : 0,
               ),
               child: _buildGoalItem(
                 goal: goal,
-                goalOption: goalOption,
+                goalOption: goal.goalOption,
                 onTap: () => _onGoalTap(goal),
               ),
             );
@@ -757,24 +760,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Widget _buildEncouragement() {
-  //   return Center(
-  //     child: Row(
-  //       mainAxisSize: MainAxisSize.min,
-  //       children: [
-  //         Text(
-  //           "You're doing great today! ",
-  //           style: AppTextStyles.bodyMedium.copyWith(
-  //             color: AppColors.stressLow,
-  //             fontWeight: FontWeight.w500,
-  //           ),
-  //         ),
-  //         const Text('🌱', style: TextStyle(fontSize: 16)),
-  //       ],
-  //     ),
-  //   );
-  // }
-
   Widget _buildEncouragement() {
     return Column(
       children: [
@@ -938,14 +923,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       14.8,
     ];
     final mockHrValues = <double>[72, 75, 71, 73, 74, 76, 70, 72, 74, 73];
-
-    debugPrint('   HRV values: $mockHrvValues');
-    debugPrint('   RR values: $mockRrValues');
-    debugPrint('   HR values: $mockHrValues');
     debugPrint('');
 
     debugPrint('📍 Step 3: Calling ML API...');
-
     try {
       final prediction = await stressService.predictStress(
         hrvValues: mockHrvValues,
@@ -971,7 +951,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '✅ Stress: ${prediction.stressLevel}% (${prediction.stressLabel}) - Confidence: ${prediction.confidence}%',
+              '✅ Stress: ${prediction.stressLevel}% — Confidence: ${prediction.confidence}%',
             ),
             backgroundColor: prediction.isLowStress
                 ? AppColors.success
@@ -983,9 +963,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     } catch (e) {
-      debugPrint('');
       debugPrint('❌ PREDICTION ERROR: $e');
-      debugPrint('');
 
       // Try mock prediction as fallback
       debugPrint('📍 Step 4: Trying mock prediction...');
@@ -1005,15 +983,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '⚠️ Used mock: Stress ${mockPrediction.stressLevel}% (${mockPrediction.stressLabel})',
+                '⚠️ Used mock: Stress ${mockPrediction.stressLevel}%',
               ),
               backgroundColor: AppColors.warning,
             ),
           );
         }
       } catch (e2) {
-        debugPrint('❌ Mock prediction also failed: $e2');
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1024,25 +1000,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
     }
-
-    debugPrint('');
-    debugPrint('════════════════════════════════════════════════════════════');
-    debugPrint('');
   }
-}
 
-Future<void> _testNotification() async {
-  debugPrint('🔔 Testing notification directly...');
-  final notifService = NotificationService();
-
-  // Step 1: test local notification directly
-  try {
-    await notifService.showLocalNotification(
-      title: '🔔 Notification successfully sent',
-      body: 'Notification service is working correctly.',
-    );
-    debugPrint('✅ showLocalNotification called without error');
-  } catch (e) {
-    debugPrint('❌ showLocalNotification failed: $e');
+  Future<void> _testNotification() async {
+    final notifService = NotificationService();
+    try {
+      await notifService.showLocalNotification(
+        title: '🔔 Notification successfully sent',
+        body: 'Notification service is working correctly.',
+      );
+    } catch (e) {
+      debugPrint('❌ showLocalNotification failed: $e');
+    }
   }
 }

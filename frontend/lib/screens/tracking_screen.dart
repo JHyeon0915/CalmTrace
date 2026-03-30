@@ -1,9 +1,10 @@
-import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
-import '../services/health_data_service.dart';
 import '../services/goals_service.dart';
+import '../services/stress_prediction_service.dart';
+import '../services/biometric_health_service.dart';
+import '../models/stress_data_source.dart';
 import '../widgets/stress_gauge.dart';
 
 class TrackingScreen extends StatefulWidget {
@@ -15,19 +16,30 @@ class TrackingScreen extends StatefulWidget {
 
 class _TrackingScreenState extends State<TrackingScreen>
     with TickerProviderStateMixin {
-  final HealthDataService _healthService = HealthDataService();
   final GoalsService _goalsService = GoalsService();
+  final BiometricHealthService _biometricService = BiometricHealthService();
+  final StressPredictionService _predictionService = StressPredictionService();
 
-  // State
+  // ── UI state ──────────────────────────────────────────────
   bool _isLoading = true;
-  StressHealthData? _healthData;
-
-  // Stress data (mock)
-  int _stressLevel = 80;
-  int _confidence = 82;
-  String _trend = 'Stable';
   String _selectedRange = '1d';
   bool _analysisExpanded = false;
+
+  // ── Data ─────────────────────────────────────────────────
+  // StressReading holds the ML result + the raw biometric values
+  // so the analysis panel can display which sensors contributed.
+  StressReading? _currentReading;
+  List<HRVSample> _hrvSeries = [];
+
+  GaugeDataState get _gaugeState {
+    if (_isLoading) return GaugeDataState.loading;
+    if (_currentReading == null ||
+        _currentReading!.source == DataSource.none ||
+        _currentReading!.stressLevel == null) {
+      return GaugeDataState.noData;
+    }
+    return GaugeDataState.hasData;
+  }
 
   final List<Map<String, String>> _timeRanges = [
     {'value': '1d', 'label': '1 day'},
@@ -37,54 +49,75 @@ class _TrackingScreenState extends State<TrackingScreen>
     {'value': '30d', 'label': '30 days'},
   ];
 
-  // Mock stress data - only 10 days of data available
-  final List<int> _mockDailyData = [65, 58, 52, 48, 45, 42, 40, 38, 36, 35];
-
-  // Stream subscriptions
-  StreamSubscription<HealthConnectionStatus>? _statusSubscription;
-  StreamSubscription<StressHealthData>? _dataSubscription;
+  // ──────────────────────────────────────────────────────────
+  // Lifecycle
+  // ──────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
-    _setupListeners();
     _loadData();
   }
 
-  void _setupListeners() {
-    _statusSubscription = _healthService.statusStream.listen((status) {
-      debugPrint('🔔 [TrackingScreen] Status: ${status.label}');
-    });
-
-    _dataSubscription = _healthService.dataStream.listen((data) {
-      debugPrint('🔔 [TrackingScreen] New health data received');
-      if (mounted) {
-        setState(() => _healthData = data);
-      }
-    });
-  }
-
   Future<void> _loadData() async {
-    await _healthService.initialize();
-    await _healthService.connect(context, forceMock: true);
-    final data = await _healthService.fetchHealthData(hours: 24);
+    if (mounted) setState(() => _isLoading = true);
+
+    // 1. Ensure HealthKit / Health Connect is authorised
+    await _biometricService.requestAuthorization();
+
+    // 2. Fetch the latest biometric snapshot (HRV, HR, RR)
+    final bio = await _biometricService.fetchLatest(hours: 6);
+
+    // 3. Fetch HRV time series for the trend chart
+    final hrvSeries = await _biometricService.fetchHRVTimeSeries(hours: 24);
+
+    // 4. Call the ML backend — only when we actually have data to send
+    StressReading? reading;
+
+    if (bio.hasData) {
+      try {
+        // HealthKit gives single scalar values per reading.
+        // Wrap them in a list — the backend accepts variable-length arrays.
+        final hrvValues = bio.hrv != null ? [bio.hrv!] : null;
+        final hrValues = bio.heartRate != null ? [bio.heartRate!] : null;
+        final rrValues = bio.respiratoryRate != null
+            ? [bio.respiratoryRate!]
+            : null;
+
+        final prediction = await _predictionService.predictStress(
+          hrvValues: hrvValues,
+          hrValues: hrValues,
+          rrValues: rrValues,
+          // eegChannels: emotivService.latestEEGChannels  ← add when EMOTIV wired up
+        );
+
+        // Map ML result + raw biometrics into our display model
+        reading = StressReading(
+          stressLevel: prediction.stressLevel,
+          confidence: prediction.confidence.toInt(),
+          hrv: bio.hrv,
+          heartRate: bio.heartRate,
+          respiratoryRate: bio.respiratoryRate,
+          source: PlatformCapabilities.supportsHealthKit
+              ? DataSource.healthKit
+              : DataSource.healthConnect,
+          timestamp: DateTime.now(),
+        );
+      } catch (e) {
+        debugPrint('❌ [TrackingScreen] ML prediction failed: $e');
+        // reading stays null → gauge shows noData, no crash
+      }
+    }
 
     if (mounted) {
       setState(() {
-        _healthData = data;
+        _currentReading = reading;
+        _hrvSeries = hrvSeries;
         _isLoading = false;
       });
     }
 
-    // Complete stress_check goal if it's a daily goal
     await _completeGoalIfNeeded();
-  }
-
-  @override
-  void dispose() {
-    _statusSubscription?.cancel();
-    _dataSubscription?.cancel();
-    super.dispose();
   }
 
   Future<void> _completeGoalIfNeeded() async {
@@ -93,33 +126,45 @@ class _TrackingScreenState extends State<TrackingScreen>
       final match = goalsData.goals.where(
         (g) => g.goalType == 'stress_check' && !g.isCompleted,
       );
-      if (match.isNotEmpty) {
-        await _goalsService.completeGoal('stress_check');
-        print('✅ [TrackingScreen] stress_check goal completed');
-      }
+      if (match.isNotEmpty) await _goalsService.completeGoal('stress_check');
     } catch (e) {
-      print('❌ [TrackingScreen] Error completing goal: $e');
+      debugPrint('❌ [TrackingScreen] Goal completion error: $e');
     }
   }
 
-  // Get data points based on selected range
-  List<int> _getDataPoints() {
-    switch (_selectedRange) {
+  // ──────────────────────────────────────────────────────────
+  // Chart helpers
+  // ──────────────────────────────────────────────────────────
+
+  List<double> _getChartDataPoints() {
+    if (_hrvSeries.isEmpty) return [];
+    final now = DateTime.now();
+    final cutoff = _cutoffForRange(_selectedRange, now);
+    final filtered = _hrvSeries
+        .where((s) => s.timestamp.isAfter(cutoff))
+        .toList();
+    if (filtered.isEmpty) return [];
+    // Invert HRV → stress scale: high HRV = low stress
+    return filtered.map((s) {
+      final hrv = s.value.clamp(10.0, 80.0);
+      return ((1 - (hrv - 10) / 70) * 100).clamp(0.0, 100.0);
+    }).toList();
+  }
+
+  DateTime _cutoffForRange(String range, DateTime now) {
+    switch (range) {
       case '1d':
-        return [38, 42, 35, 40, 35];
+        return now.subtract(const Duration(hours: 24));
       case '2d':
-        return [42, 38, 35, 40, 35];
+        return now.subtract(const Duration(hours: 48));
       case '3d':
-        return _mockDailyData.sublist(7, 10).toList();
+        return now.subtract(const Duration(hours: 72));
       case '7d':
-        return _mockDailyData.sublist(3, 10).toList();
+        return now.subtract(const Duration(days: 7));
       case '30d':
-        // 30 days - only 10 days have data, rest is 0
-        List<int> data = List<int>.filled(20, 0);
-        data = [...data, ..._mockDailyData];
-        return data;
+        return now.subtract(const Duration(days: 30));
       default:
-        return _mockDailyData.sublist(7, 10).toList();
+        return now.subtract(const Duration(hours: 24));
     }
   }
 
@@ -163,70 +208,84 @@ class _TrackingScreenState extends State<TrackingScreen>
     return const Color(0xFFE57373);
   }
 
+  String _trendLabel() {
+    final level = _currentReading?.stressLevel;
+    if (level == null) return '—';
+    if (level <= 40) return 'Stable ↓';
+    if (level <= 70) return 'Moderate';
+    return 'Elevated ↑';
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Build
+  // ──────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
+        child: RefreshIndicator(
+          onRefresh: _loadData,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: AppSpacing.lg),
+                  Text('Stress Tracking', style: AppTextStyles.h2),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Monitor your stress biomarkers',
+                    style: AppTextStyles.bodyMedium,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const SizedBox(height: AppSpacing.lg),
-
-                      // Header
-                      Text('Stress Tracking', style: AppTextStyles.h2),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Monitor your stress biomarkers',
-                        style: AppTextStyles.bodyMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-
-                      // Stress Gauge Card
-                      _buildStressGaugeCard(),
-                      const SizedBox(height: AppSpacing.lg),
-
-                      // Analysis Section
-                      Text(
-                        'Analysis',
-                        style: AppTextStyles.bodyLarge.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      _buildAnalysisHeader(),
-                      if (_analysisExpanded) _buildAnalysisContent(),
-                      const SizedBox(height: AppSpacing.lg),
-
-                      // Trend Chart Card
-                      _buildTrendCard(),
-                      const SizedBox(height: AppSpacing.xl),
-
-                      // Disclaimer
-                      Center(
-                        child: Text(
-                          'This data is for informational purposes only and is not a medical diagnosis.',
-                          style: AppTextStyles.bodySmall,
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                    ],
+                  const SizedBox(height: AppSpacing.xl),
+                  _buildStressGaugeCard(),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    'Analysis',
+                    style: AppTextStyles.bodyLarge.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
-                ),
+                  const SizedBox(height: AppSpacing.sm),
+                  _buildAnalysisHeader(),
+                  if (_analysisExpanded) _buildAnalysisContent(),
+                  const SizedBox(height: AppSpacing.lg),
+                  _buildTrendCard(),
+                  const SizedBox(height: AppSpacing.xl),
+                  if (_currentReading == null ||
+                      _currentReading!.source == DataSource.none)
+                    _buildNoDataBanner(),
+                  const SizedBox(height: AppSpacing.md),
+                  Center(
+                    child: Text(
+                      'For informational purposes only. Not a medical diagnosis.',
+                      style: AppTextStyles.bodySmall,
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.xl),
+                ],
               ),
+            ),
+          ),
+        ),
       ),
     );
   }
 
+  // ──────────────────────────────────────────────────────────
+  // Cards
+  // ──────────────────────────────────────────────────────────
+
   Widget _buildStressGaugeCard() {
+    final reading = _currentReading;
+    final confidence = reading?.confidence ?? 0;
+    final confidenceColor = _getConfidenceColor(confidence);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.xl),
@@ -237,10 +296,13 @@ class _TrackingScreenState extends State<TrackingScreen>
       ),
       child: Column(
         children: [
-          StressGauge(level: _stressLevel, maxLevel: 100),
+          StressGauge(
+            level: reading?.stressLevel,
+            maxLevel: 100,
+            dataState: _gaugeState,
+            dataSourceLabel: reading?.source.label,
+          ),
           const SizedBox(height: AppSpacing.lg),
-
-          // Trend indicator
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -252,7 +314,7 @@ class _TrackingScreenState extends State<TrackingScreen>
               ),
               const SizedBox(width: AppSpacing.sm),
               Text(
-                _trend,
+                _trendLabel(),
                 style: AppTextStyles.bodyMedium.copyWith(
                   fontWeight: FontWeight.w500,
                 ),
@@ -260,17 +322,14 @@ class _TrackingScreenState extends State<TrackingScreen>
             ],
           ),
           const SizedBox(height: AppSpacing.xl),
-
-          // Confidence Meter
-          _buildConfidenceMeter(),
+          if (_gaugeState == GaugeDataState.hasData)
+            _buildConfidenceMeter(confidence, confidenceColor),
         ],
       ),
     );
   }
 
-  Widget _buildConfidenceMeter() {
-    final color = _getConfidenceColor(_confidence);
-
+  Widget _buildConfidenceMeter(int confidence, Color color) {
     return Column(
       children: [
         Row(
@@ -283,7 +342,7 @@ class _TrackingScreenState extends State<TrackingScreen>
               ),
             ),
             Text(
-              '$_confidence %',
+              '$confidence%',
               style: AppTextStyles.bodySmall.copyWith(
                 color: AppColors.textSecondary,
                 fontWeight: FontWeight.w600,
@@ -296,7 +355,6 @@ class _TrackingScreenState extends State<TrackingScreen>
           builder: (context, constraints) {
             return Stack(
               children: [
-                // Background
                 Container(
                   height: 8,
                   width: double.infinity,
@@ -305,12 +363,11 @@ class _TrackingScreenState extends State<TrackingScreen>
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ),
-                // Progress - properly calculated width
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 800),
                   curve: Curves.easeOutCubic,
                   height: 8,
-                  width: constraints.maxWidth * (_confidence / 100),
+                  width: constraints.maxWidth * (confidence / 100),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [color.withValues(alpha: 0.7), color],
@@ -326,11 +383,42 @@ class _TrackingScreenState extends State<TrackingScreen>
     );
   }
 
+  Widget _buildNoDataBanner() {
+    final msg = PlatformCapabilities.supportsHealthKit
+        ? 'Open Apple Health and grant CalmTrace access, or sync your Garmin watch.'
+        : PlatformCapabilities.supportsHealthConnect
+        ? 'Open Health Connect and grant CalmTrace access, or sync your Garmin watch.'
+        : 'Connect your EMOTIV headset via the EMOTIV Cortex app.';
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: AppRadius.lgBorder,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 18, color: AppColors.textSecondary),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Text(
+              msg,
+              style: AppTextStyles.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAnalysisHeader() {
     return GestureDetector(
-      onTap: () {
-        setState(() => _analysisExpanded = !_analysisExpanded);
-      },
+      onTap: () => setState(() => _analysisExpanded = !_analysisExpanded),
       child: Container(
         padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
@@ -368,6 +456,25 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Widget _buildAnalysisContent() {
+    final reading = _currentReading;
+
+    final hasHRV = reading?.hrv != null;
+    final hasHR = reading?.heartRate != null;
+    final hasRR = reading?.respiratoryRate != null;
+    final hasEEG =
+        reading?.eegStressIndex != null || reading?.emotivStressDirect != null;
+
+    if (!hasHRV && !hasHR && !hasRR && !hasEEG) return _buildAnalysisNoData();
+
+    // Proportional weights for the percentage bars
+    final double totalWeight =
+        (hasHRV ? 0.45 : 0) +
+        (hasHR ? 0.30 : 0) +
+        (hasRR ? 0.15 : 0) +
+        (hasEEG ? 0.10 : 0);
+
+    int pct(double w) => totalWeight > 0 ? (w / totalWeight * 100).round() : 0;
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
@@ -383,7 +490,7 @@ class _TrackingScreenState extends State<TrackingScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Our multimodal AI analyzes several biomarkers to estimate stress levels.',
+            'Biomarkers used by the ML model:',
             style: AppTextStyles.bodySmall.copyWith(
               color: AppColors.textSecondary,
               height: 1.5,
@@ -391,40 +498,82 @@ class _TrackingScreenState extends State<TrackingScreen>
           ),
           const SizedBox(height: AppSpacing.lg),
 
-          // HRV Factor
-          _buildFactorRow(
-            icon: Icons.show_chart,
-            iconColor: const Color(0xFFE89B9B),
-            label: 'Heart Rate Variability (HRV)',
-            percentage: 45,
-            color: AppColors.primary,
-            description:
-                'Low variability detected, suggesting sympathetic nervous system activation.',
-          ),
-          const SizedBox(height: AppSpacing.lg),
+          if (hasHRV) ...[
+            _buildFactorRow(
+              icon: Icons.show_chart,
+              iconColor: const Color(0xFFE89B9B),
+              label: 'HRV  •  ${reading!.hrv!.toStringAsFixed(1)} ms',
+              percentage: pct(0.45),
+              description: reading.hrv! < 25
+                  ? 'Low variability — sympathetic activation likely.'
+                  : 'Healthy variability — good parasympathetic activity.',
+            ),
+            if (hasHR || hasRR || hasEEG) const SizedBox(height: AppSpacing.lg),
+          ],
 
-          // RR Factor
-          _buildFactorRow(
-            icon: Icons.air,
-            iconColor: AppColors.primary,
-            label: 'Respiratory Rate',
-            percentage: 30,
-            color: AppColors.primary,
-            description: 'Slightly elevated breathing rate observed.',
-          ),
-          const SizedBox(height: AppSpacing.lg),
+          if (hasHR) ...[
+            _buildFactorRow(
+              icon: Icons.favorite_outline,
+              iconColor: const Color(0xFFE89B9B),
+              label:
+                  'Heart Rate  •  ${reading!.heartRate!.toStringAsFixed(0)} bpm',
+              percentage: pct(0.30),
+              description: reading.heartRate! >= 85
+                  ? 'Elevated — may indicate physical or emotional stress.'
+                  : reading.heartRate! >= 75
+                  ? 'Slightly above resting baseline.'
+                  : 'Within normal resting range.',
+            ),
+            if (hasRR || hasEEG) const SizedBox(height: AppSpacing.lg),
+          ],
 
-          // EEG Factor
-          _buildFactorRow(
-            icon: Icons.psychology,
-            iconColor: const Color(0xFFB4A7D6),
-            label: 'EEG Patterns',
-            percentage: 25,
-            color: AppColors.primary,
-            description:
-                'Beta wave dominance indicating active thinking or focus.',
-          ),
+          if (hasRR) ...[
+            _buildFactorRow(
+              icon: Icons.air,
+              iconColor: AppColors.primary,
+              label:
+                  'Respiratory Rate  •  ${reading!.respiratoryRate!.toStringAsFixed(1)} br/min',
+              percentage: pct(0.15),
+              description: reading.respiratoryRate! > 20
+                  ? 'Elevated breathing rate observed.'
+                  : 'Within normal range.',
+            ),
+            if (hasEEG) const SizedBox(height: AppSpacing.lg),
+          ],
+
+          if (hasEEG)
+            _buildFactorRow(
+              icon: Icons.psychology,
+              iconColor: const Color(0xFFB4A7D6),
+              label: 'EEG Patterns (EMOTIV)',
+              percentage: pct(0.10),
+              description: (reading?.emotivStressDirect ?? 0) > 0.6
+                  ? 'Beta wave dominance — cognitive load detected.'
+                  : 'EEG indicates moderate engagement.',
+            ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAnalysisNoData() {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
+        border: Border(
+          left: BorderSide(color: AppColors.border),
+          right: BorderSide(color: AppColors.border),
+          bottom: BorderSide(color: AppColors.border),
+        ),
+      ),
+      child: Text(
+        'No sensor data available yet. Connect your Garmin watch or EMOTIV headset to see a breakdown.',
+        style: AppTextStyles.bodySmall.copyWith(
+          color: AppColors.textSecondary,
+          height: 1.5,
+        ),
       ),
     );
   }
@@ -434,7 +583,6 @@ class _TrackingScreenState extends State<TrackingScreen>
     required Color iconColor,
     required String label,
     required int percentage,
-    required Color color,
     required String description,
   }) {
     return Column(
@@ -453,7 +601,7 @@ class _TrackingScreenState extends State<TrackingScreen>
               ),
             ),
             Text(
-              '$percentage %',
+              '$percentage%',
               style: AppTextStyles.bodyMedium.copyWith(
                 fontWeight: FontWeight.w600,
               ),
@@ -461,7 +609,6 @@ class _TrackingScreenState extends State<TrackingScreen>
           ],
         ),
         const SizedBox(height: AppSpacing.sm),
-        // Progress bar
         Stack(
           children: [
             Container(
@@ -473,16 +620,14 @@ class _TrackingScreenState extends State<TrackingScreen>
               ),
             ),
             LayoutBuilder(
-              builder: (context, constraints) {
-                return Container(
-                  height: 6,
-                  width: constraints.maxWidth * (percentage / 100),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                );
-              },
+              builder: (context, constraints) => Container(
+                height: 6,
+                width: constraints.maxWidth * (percentage / 100),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
             ),
           ],
         ),
@@ -499,8 +644,9 @@ class _TrackingScreenState extends State<TrackingScreen>
   }
 
   Widget _buildTrendCard() {
-    final dataPoints = _getDataPoints();
+    final chartData = _getChartDataPoints();
     final labels = _getLabels();
+    final hasChartData = chartData.isNotEmpty;
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -519,8 +665,6 @@ class _TrackingScreenState extends State<TrackingScreen>
             ),
           ),
           const SizedBox(height: AppSpacing.lg),
-
-          // Time Range Selector
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -529,9 +673,8 @@ class _TrackingScreenState extends State<TrackingScreen>
                 return Padding(
                   padding: const EdgeInsets.only(right: AppSpacing.xs),
                   child: GestureDetector(
-                    onTap: () {
-                      setState(() => _selectedRange = range['value']!);
-                    },
+                    onTap: () =>
+                        setState(() => _selectedRange = range['value']!),
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.symmetric(
@@ -569,22 +712,20 @@ class _TrackingScreenState extends State<TrackingScreen>
             ),
           ),
           const SizedBox(height: AppSpacing.xl),
-
-          // Chart
           SizedBox(
             height: 180,
-            child: _StressChart(
-              dataPoints: dataPoints,
-              labels: labels,
-              selectedRange: _selectedRange,
-            ),
+            child: hasChartData
+                ? _StressChart(
+                    dataPoints: chartData.map((d) => d.round()).toList(),
+                    labels: labels,
+                    selectedRange: _selectedRange,
+                  )
+                : _buildChartEmpty(),
           ),
           const SizedBox(height: AppSpacing.md),
-
-          // Description
           Center(
             child: Text(
-              _getRangeDescription(),
+              hasChartData ? _getRangeDescription() : 'No trend data yet',
               style: AppTextStyles.bodySmall.copyWith(
                 color: AppColors.textHint,
               ),
@@ -594,9 +735,36 @@ class _TrackingScreenState extends State<TrackingScreen>
       ),
     );
   }
+
+  Widget _buildChartEmpty() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.show_chart,
+            size: 40,
+            color: AppColors.textHint.withValues(alpha: 0.4),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Trend data will appear once\nyour device syncs readings.',
+            style: AppTextStyles.bodySmall.copyWith(
+              color: AppColors.textHint,
+              height: 1.5,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// Custom Chart Widget
+// ─────────────────────────────────────────────────────────────────────────────
+// Chart
+// ─────────────────────────────────────────────────────────────────────────────
+
 class _StressChart extends StatelessWidget {
   final List<int> dataPoints;
   final List<String> labels;
@@ -611,16 +779,14 @@ class _StressChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
-      builder: (context, constraints) {
-        return CustomPaint(
-          size: Size(constraints.maxWidth, constraints.maxHeight),
-          painter: _ChartPainter(
-            dataPoints: dataPoints,
-            labels: labels,
-            selectedRange: selectedRange,
-          ),
-        );
-      },
+      builder: (context, constraints) => CustomPaint(
+        size: Size(constraints.maxWidth, constraints.maxHeight),
+        painter: _ChartPainter(
+          dataPoints: dataPoints,
+          labels: labels,
+          selectedRange: selectedRange,
+        ),
+      ),
     );
   }
 }
@@ -640,21 +806,15 @@ class _ChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (dataPoints.isEmpty) return;
 
-    const paddingLeft = 30.0;
-    const paddingRight = 10.0;
-    const paddingTop = 10.0;
-    const paddingBottom = 25.0;
-
+    const paddingLeft = 30.0,
+        paddingRight = 10.0,
+        paddingTop = 10.0,
+        paddingBottom = 25.0;
     final chartWidth = size.width - paddingLeft - paddingRight;
     final chartHeight = size.height - paddingTop - paddingBottom;
 
-    // Draw Y-axis labels and grid lines
-    final yAxisValues = [100, 75, 50, 25, 0];
-
-    for (int i = 0; i < yAxisValues.length; i++) {
-      final y = paddingTop + (i / (yAxisValues.length - 1)) * chartHeight;
-
-      // Draw dashed grid line
+    for (int i = 0; i < 5; i++) {
+      final y = paddingTop + (i / 4) * chartHeight;
       _drawDashedLine(
         canvas,
         Offset(paddingLeft, y),
@@ -663,181 +823,130 @@ class _ChartPainter extends CustomPainter {
           ..color = const Color(0xFFE8E8E8)
           ..strokeWidth = 1,
       );
-
-      // Draw Y-axis label
-      final textPainter = TextPainter(
+      final tp = TextPainter(
         text: TextSpan(
-          text: '${yAxisValues[i]}',
+          text: '${100 - i * 25}',
           style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 10),
         ),
         textDirection: TextDirection.ltr,
-      );
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(5, y - textPainter.height / 2));
+      )..layout();
+      tp.paint(canvas, Offset(5, y - tp.height / 2));
     }
 
-    // Calculate points
     final stepX = dataPoints.length > 1
         ? chartWidth / (dataPoints.length - 1)
         : chartWidth;
-    final points = <Offset>[];
+    final points = <Offset>[
+      for (int i = 0; i < dataPoints.length; i++)
+        Offset(
+          paddingLeft + i * stepX,
+          paddingTop + chartHeight - dataPoints[i] / 100 * chartHeight,
+        ),
+    ];
 
-    for (int i = 0; i < dataPoints.length; i++) {
-      final x = paddingLeft + i * stepX;
-      final normalizedValue = dataPoints[i] / 100;
-      final y = paddingTop + chartHeight - (normalizedValue * chartHeight);
-      points.add(Offset(x, y));
-    }
-
-    // Draw gradient fill
     if (points.length > 1) {
-      final fillPath = Path();
-      fillPath.moveTo(points.first.dx, paddingTop + chartHeight);
-      fillPath.lineTo(points.first.dx, points.first.dy);
-
+      final fill = Path()
+        ..moveTo(points.first.dx, paddingTop + chartHeight)
+        ..lineTo(points.first.dx, points.first.dy);
+      final line = Path()..moveTo(points.first.dx, points.first.dy);
       for (int i = 0; i < points.length - 1; i++) {
-        final current = points[i];
-        final next = points[i + 1];
-        final controlX = (current.dx + next.dx) / 2;
-
-        fillPath.quadraticBezierTo(
-          controlX,
-          current.dy,
-          controlX,
-          (current.dy + next.dy) / 2,
+        final cp = (points[i].dx + points[i + 1].dx) / 2;
+        fill.quadraticBezierTo(
+          cp,
+          points[i].dy,
+          cp,
+          (points[i].dy + points[i + 1].dy) / 2,
         );
-        fillPath.quadraticBezierTo(controlX, next.dy, next.dx, next.dy);
-      }
-
-      fillPath.lineTo(points.last.dx, paddingTop + chartHeight);
-      fillPath.close();
-
-      final fillPaint = Paint()
-        ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFF6B9BD1).withValues(alpha: 0.3),
-            const Color(0xFF6B9BD1).withValues(alpha: 0.05),
-          ],
-        ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-
-      canvas.drawPath(fillPath, fillPaint);
-    }
-
-    // Draw line
-    if (points.length > 1) {
-      final linePath = Path();
-      linePath.moveTo(points.first.dx, points.first.dy);
-
-      for (int i = 0; i < points.length - 1; i++) {
-        final current = points[i];
-        final next = points[i + 1];
-        final controlX = (current.dx + next.dx) / 2;
-
-        linePath.quadraticBezierTo(
-          controlX,
-          current.dy,
-          controlX,
-          (current.dy + next.dy) / 2,
+        fill.quadraticBezierTo(
+          cp,
+          points[i + 1].dy,
+          points[i + 1].dx,
+          points[i + 1].dy,
         );
-        linePath.quadraticBezierTo(controlX, next.dy, next.dx, next.dy);
+        line.quadraticBezierTo(
+          cp,
+          points[i].dy,
+          cp,
+          (points[i].dy + points[i + 1].dy) / 2,
+        );
+        line.quadraticBezierTo(
+          cp,
+          points[i + 1].dy,
+          points[i + 1].dx,
+          points[i + 1].dy,
+        );
       }
-
-      final linePaint = Paint()
-        ..color = const Color(0xFF6B9BD1)
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round;
-
-      canvas.drawPath(linePath, linePaint);
+      fill.lineTo(points.last.dx, paddingTop + chartHeight);
+      fill.close();
+      canvas.drawPath(
+        fill,
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0x4D6B9BD1), Color(0x0D6B9BD1)],
+          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
+      );
+      canvas.drawPath(
+        line,
+        Paint()
+          ..color = const Color(0xFF6B9BD1)
+          ..strokeWidth = 2
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round,
+      );
     }
 
-    // Draw data points
-    final dotFillPaint = Paint()..color = Colors.white;
-    final dotStrokePaint = Paint()
-      ..color = const Color(0xFF6B9BD1)
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-
-    for (final point in points) {
-      canvas.drawCircle(point, 4, dotFillPaint);
-      canvas.drawCircle(point, 4, dotStrokePaint);
+    for (final p in points) {
+      canvas.drawCircle(p, 4, Paint()..color = Colors.white);
+      canvas.drawCircle(
+        p,
+        4,
+        Paint()
+          ..color = const Color(0xFF6B9BD1)
+          ..strokeWidth = 2
+          ..style = PaintingStyle.stroke,
+      );
     }
 
-    // Draw X-axis labels
-    _drawXAxisLabels(canvas, size, points, paddingLeft, chartWidth);
+    if (points.isNotEmpty && labels.isNotEmpty) {
+      final step = points.length > 1
+          ? (points.length - 1) / (labels.length - 1)
+          : 0.0;
+      for (int i = 0; i < labels.length; i++) {
+        final idx = (i * step).round().clamp(0, points.length - 1);
+        final tp = TextPainter(
+          text: TextSpan(
+            text: labels[i],
+            style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 9),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        tp.paint(
+          canvas,
+          Offset(points[idx].dx - tp.width / 2, size.height - 12),
+        );
+      }
+    }
   }
 
   void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
-    const dashWidth = 4.0;
-    const dashSpace = 4.0;
-    double distance = (end - start).distance;
+    const dashWidth = 4.0, dashSpace = 4.0;
+    final distance = (end - start).distance;
     double drawn = 0;
-
     while (drawn < distance) {
-      final segmentLength = min(dashWidth, distance - drawn);
-      final t1 = drawn / distance;
-      final t2 = (drawn + segmentLength) / distance;
-
+      final seg = min(dashWidth, distance - drawn);
       canvas.drawLine(
-        Offset.lerp(start, end, t1)!,
-        Offset.lerp(start, end, t2)!,
+        Offset.lerp(start, end, drawn / distance)!,
+        Offset.lerp(start, end, (drawn + seg) / distance)!,
         paint,
       );
       drawn += dashWidth + dashSpace;
     }
   }
 
-  void _drawXAxisLabels(
-    Canvas canvas,
-    Size size,
-    List<Offset> points,
-    double paddingLeft,
-    double chartWidth,
-  ) {
-    List<String> displayLabels;
-    List<int> labelIndices;
-
-    if (selectedRange == '30d') {
-      displayLabels = ['30d', '20d', '10d', 'Today'];
-      labelIndices = [0, 9, 19, 29];
-    } else {
-      displayLabels = labels;
-      if (points.isEmpty) return;
-
-      final step = points.length > 1
-          ? (points.length - 1) / (displayLabels.length - 1)
-          : 0;
-      labelIndices = List.generate(
-        displayLabels.length,
-        (i) => (i * step).round().clamp(0, points.length - 1),
-      );
-    }
-
-    for (int i = 0; i < displayLabels.length; i++) {
-      if (labelIndices[i] >= points.length) continue;
-
-      final x = points[labelIndices[i]].dx;
-      final textPainter = TextPainter(
-        text: TextSpan(
-          text: displayLabels[i],
-          style: const TextStyle(color: Color(0xFF9CA3AF), fontSize: 9),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset(x - textPainter.width / 2, size.height - 12),
-      );
-    }
-  }
-
   @override
-  bool shouldRepaint(covariant _ChartPainter oldDelegate) {
-    return oldDelegate.dataPoints != dataPoints ||
-        oldDelegate.selectedRange != selectedRange;
-  }
+  bool shouldRepaint(covariant _ChartPainter old) =>
+      old.dataPoints != dataPoints || old.selectedRange != selectedRange;
 }

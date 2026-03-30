@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 
+enum GaugeDataState { loading, noData, hasData }
+
 class StressGauge extends StatefulWidget {
-  final int level;
+  /// Null = no data available. Never pass a fake default number.
+  final int? level;
   final int maxLevel;
   final double size;
   final double strokeWidth;
+  final GaugeDataState dataState;
+  final String? dataSourceLabel; // e.g. "Apple Health", "EMOTIV", "Demo"
 
   const StressGauge({
     super.key,
@@ -13,6 +18,8 @@ class StressGauge extends StatefulWidget {
     required this.maxLevel,
     this.size = 160,
     this.strokeWidth = 16,
+    this.dataState = GaugeDataState.hasData,
+    this.dataSourceLabel,
   });
 
   @override
@@ -43,21 +50,32 @@ class _StressGaugeState extends State<StressGauge>
       duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
+
+    final effectiveLevel = widget.level;
     _animation = Tween<double>(
       begin: 0,
-      end: widget.level / widget.maxLevel,
+      end: effectiveLevel != null ? effectiveLevel / widget.maxLevel : 0,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _controller.forward();
+
+    if (widget.dataState == GaugeDataState.hasData) {
+      _controller.forward();
+    }
   }
 
   @override
   void didUpdateWidget(StressGauge oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.level != widget.level) {
+
+    final newLevel = widget.level;
+    final oldLevel = oldWidget.level;
+
+    if (oldLevel != newLevel || oldWidget.dataState != widget.dataState) {
       _animation =
           Tween<double>(
             begin: _animation.value,
-            end: widget.level / widget.maxLevel,
+            end: newLevel != null && widget.dataState == GaugeDataState.hasData
+                ? newLevel / widget.maxLevel
+                : 0,
           ).animate(
             CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic),
           );
@@ -75,8 +93,123 @@ class _StressGaugeState extends State<StressGauge>
 
   @override
   Widget build(BuildContext context) {
-    final color = _getStressColor(widget.level);
-    final label = _getStressLabel(widget.level);
+    switch (widget.dataState) {
+      case GaugeDataState.loading:
+        return _buildLoadingState();
+      case GaugeDataState.noData:
+        return _buildNoDataState();
+      case GaugeDataState.hasData:
+        return _buildGauge();
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // States
+  // ──────────────────────────────────────────────────────────
+
+  Widget _buildLoadingState() {
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: widget.size,
+            height: widget.size,
+            child: CircularProgressIndicator(
+              strokeWidth: widget.strokeWidth,
+              backgroundColor: AppColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                AppColors.primary.withValues(alpha: 0.3),
+              ),
+            ),
+          ),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Reading...',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                  fontSize: widget.size * 0.08,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNoDataState() {
+    return SizedBox(
+      width: widget.size,
+      height: widget.size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Dashed/muted track
+          SizedBox(
+            width: widget.size,
+            height: widget.size,
+            child: CircularProgressIndicator(
+              value: 1,
+              strokeWidth: widget.strokeWidth,
+              backgroundColor: AppColors.border,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                AppColors.border.withValues(alpha: 0.5),
+              ),
+            ),
+          ),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.sensors_off_outlined,
+                color: AppColors.textHint,
+                size: widget.size * 0.22,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'No data',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: AppColors.textHint,
+                  fontWeight: FontWeight.w600,
+                  fontSize: widget.size * 0.1,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Connect a device',
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: AppColors.textHint,
+                  fontSize: widget.size * 0.075,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGauge() {
+    final level = widget.level;
+    if (level == null) return _buildNoDataState();
+
+    final color = _getStressColor(level);
+    final label = _getStressLabel(level);
 
     return AnimatedBuilder(
       animation: _animation,
@@ -111,7 +244,7 @@ class _StressGaugeState extends State<StressGauge>
                   strokeCap: StrokeCap.round,
                 ),
               ),
-              // Center text
+              // Center content
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -130,6 +263,16 @@ class _StressGaugeState extends State<StressGauge>
                       fontSize: widget.size * 0.09,
                     ),
                   ),
+                  if (widget.dataSourceLabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      widget.dataSourceLabel!,
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: AppColors.textHint,
+                        fontSize: widget.size * 0.07,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
