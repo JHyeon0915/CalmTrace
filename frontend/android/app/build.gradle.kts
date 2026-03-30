@@ -9,7 +9,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.frontend"
+    namespace = "com.jeonghyeon.calmtrace"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
@@ -24,7 +24,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.frontend"
+        applicationId = "com.jeonghyeon.calmtrace"
         minSdk = 26
         targetSdk = 36
         versionCode = flutter.versionCode
