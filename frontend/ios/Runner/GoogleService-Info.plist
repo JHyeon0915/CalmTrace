@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.frontend</string>
+	<string>com.jeonghyeon.calmtrace</string>
 	<key>PROJECT_ID</key>
 	<string>calmtrace-25d65</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:83293203141:ios:3068b7e7e5c0657b741eac</string>
+	<string>1:83293203141:ios:c06eb1b3cababb6f741eac</string>
 </dict>
 </plist>

@@ -1,10 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Health Permissions -->
     <uses-permission android:name="android.permission.health.READ_HEART_RATE"/>
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY"/>
     <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE"/>
     <application
-        android:label="frontend"
+        android:label="calmtrace"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -27,6 +28,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE"/>
             </intent-filter>
         </activity>
         <activity-alias
@@ -55,5 +57,6 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <package android:name="com.google.android.apps.healthdata"/>
     </queries>
 </manifest>

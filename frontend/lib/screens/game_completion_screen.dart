@@ -170,6 +170,7 @@ class _GameCompletionScreenState extends State<GameCompletionScreen>
             setState(() {
               _goalUpdateMessage = 'Daily goal completed! 🎉';
             });
+            GoalsService.onGoalCompleted?.call(); // Fires dashboard reload
           }
         }
       } else {

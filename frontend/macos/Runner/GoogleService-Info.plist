@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.example.frontend</string>
+	<string>com.jeonghyeon.calmtrace</string>
 	<key>PROJECT_ID</key>
 	<string>calmtrace-25d65</string>
 	<key>STORAGE_BUCKET</key>

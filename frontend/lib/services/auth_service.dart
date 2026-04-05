@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 /// Result wrapper for auth operations
 class AuthResult {
@@ -55,6 +56,7 @@ class AuthService {
 
       return AuthResult.success(_auth.currentUser!);
     } on FirebaseAuthException catch (e) {
+      debugPrint('🔐 Firebase error code: ${e.code}, message: ${e.message}');
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
       return AuthResult.failure(
@@ -76,6 +78,7 @@ class AuthService {
 
       return AuthResult.success(credential.user!);
     } on FirebaseAuthException catch (e) {
+      debugPrint('🔐 Firebase error code: ${e.code}, message: ${e.message}');
       return AuthResult.failure(_getErrorMessage(e.code));
     } catch (e) {
       return AuthResult.failure(

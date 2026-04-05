@@ -1,4 +1,4 @@
-package com.example.frontend
+package com.jeonghyeon.calmtrace
 
 import io.flutter.embedding.android.FlutterActivity
 

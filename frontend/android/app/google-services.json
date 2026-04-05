@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:83293203141:android:9a326d2c1e965729741eac",
+        "mobilesdk_app_id": "1:83293203141:android:1958b26e2b422ef9741eac",
         "android_client_info": {
-          "package_name": "com.example.frontend"
+          "package_name": "com.jeonghyeon.calmtrace"
         }
       },
       "oauth_client": [],

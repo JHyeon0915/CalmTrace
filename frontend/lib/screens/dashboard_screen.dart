@@ -1,20 +1,26 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
 import '../services/streak_service.dart';
 import '../services/goals_service.dart';
+import '../models/stress_data_source.dart';
 import '../models/goal_model.dart';
 import '../models/daily_tip_model.dart';
 import '../widgets/app_bottom_nav_bar.dart';
 import '../widgets/streak_celebration_modal.dart';
 import '../widgets/set_goals_modal.dart';
+import '../widgets/stress_gauge.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
 import 'guided_breathing_screen.dart';
+import 'ai_coach_screen.dart';
 import 'tracking_screen.dart';
 import '../services/stress_prediction_service.dart';
-import 'package:flutter/foundation.dart';
+import '../services/notification_service.dart';
+import '../services/device_feedback_service.dart';
+import '../services/emotiv_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -36,6 +42,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<UserGoal> _dailyGoals = [];
   int _goalsCompleted = 0;
 
+  // Stress — driven by the shared fusion service
+  StressReading? _currentReading;
+  StreamSubscription<StressReading>? _fusionSubscription;
+
   // Daily tip - gets set once based on today's date
   late final DailyTip _todaysTip;
 
@@ -43,16 +53,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _todaysTip = DailyTips.getTodaysTip();
+
     _loadData();
+    GoalsService.onGoalCompleted = _onAnyGoalCompleted;
+
+    // Initialize EMOTIV Cortex connection
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      EmotivService().fullConnect(context);
+    });
+  }
+
+  @override
+  void dispose() {
+    _fusionSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
-    await Future.wait([_loadStreakData(), _loadGoalsData()]);
+    await Future.wait([_loadStreakData(), _loadGoalsData(), _loadStressData()]);
+  }
+
+  /// Fetch a fresh reading. Safe to call multiple times — the fusion
+  /// service deduplicates and broadcasts to both screens.
+  Future<void> _loadStressData() async {
+    // Only fetch if we have no reading yet (TrackingScreen may have
+    // already populated it via the shared singleton).
+    if (_currentReading != null) return;
   }
 
   Future<void> _loadStreakData() async {
     try {
-      debugPrint('🔄 Loading streak data...');
       final streak = await _streakService.checkAndUpdateStreak();
       debugPrint('📊 Streak from API: $streak');
 
@@ -78,15 +108,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     } catch (e) {
       debugPrint('❌ Error loading streak: $e');
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   Future<void> _loadGoalsData() async {
     try {
-      debugPrint('🎯 Loading goals data...');
       final goalsData = await _goalsService.getDailyGoals();
       debugPrint('📋 Goals loaded: ${goalsData.goals.length}');
 
@@ -103,7 +130,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _showCelebrationModal(int streakCount, bool isNewStreak) {
     if (!mounted) return;
-
     StreakCelebrationModal.show(
       context,
       streakCount: streakCount,
@@ -113,19 +139,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _showSetGoalsModal() async {
     final currentGoalTypes = _dailyGoals.map((g) => g.goalType).toList();
-
     final selectedGoals = await SetGoalsModal.show(
       context,
       initialSelectedGoals: currentGoalTypes,
       maxGoals: 2,
     );
-
     if (selectedGoals != null && selectedGoals.isNotEmpty && mounted) {
-      debugPrint('💾 Saving goals: $selectedGoals');
-
       try {
         final goalsData = await _goalsService.setDailyGoals(selectedGoals);
-
         if (mounted) {
           setState(() {
             _dailyGoals = goalsData.goals;
@@ -147,95 +168,87 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _onNavTap(int index) {
+    final previousIndex = _currentIndex;
     setState(() => _currentIndex = index);
+    // Reload when returning home so completions from other screens are reflected
+    if (index == 0 && previousIndex != 0) {
+      _loadData();
+    }
   }
 
   Future<void> _onGoalTap(UserGoal goal) async {
     final goalOption = goal.goalOption;
     if (goalOption == null) return;
-
-    // Navigate based on goal destination
-    bool? completed;
-
     switch (goalOption.destination) {
       case GoalDestination.breathing:
-        completed = await Navigator.push<bool>(
+        Navigator.push<bool>(
           context,
           MaterialPageRoute(
             builder: (context) => const GuidedBreathingScreen(),
           ),
         );
         break;
-
       case GoalDestination.tracking:
         // Navigate to tracking page (index 1 in bottom nav)
         setState(() => _currentIndex = 1);
-        completed = true;
         break;
-
       case GoalDestination.therapy:
-        // Navigate to therapy hub (index 2 in bottom nav)
         setState(() => _currentIndex = 2);
-        completed = true;
         break;
-
       case GoalDestination.games:
-        // Navigate to games (index 3 in bottom nav)
         setState(() => _currentIndex = 3);
-        completed = true;
         break;
-
       case GoalDestination.chat:
-        // TODO: Navigate to AI Coach chat
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('AI Coach coming soon!')),
-          );
-        }
-        return;
-    }
-
-    // Complete the goal if navigation was successful
-    if (completed == true && !goal.isCompleted) {
-      await _completeGoal(goal.goalType);
+        Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (context) => const AICoachScreen()),
+        );
+        break;
     }
   }
 
-  Future<void> _completeGoal(String goalType) async {
-    try {
-      debugPrint('🎯 Completing goal: $goalType');
-      final result = await _goalsService.completeGoal(goalType);
-      debugPrint(
-        '📊 Goal complete result - progress: ${result.dailyProgress}/${result.totalGoals}',
-      );
-
-      if (!mounted) return;
-
-      // Reload goals to get updated completion status
-      await _loadGoalsData();
-
-      // Update streak if needed
-      if (result.streakUpdated && result.streakData != null) {
-        setState(() {
-          _streakCount = result.streakData!.streakCount;
-        });
-
-        // Show celebration if needed
-        if (result.streakData!.shouldCelebrate) {
-          final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
-          if (!hasSeenToday && mounted) {
-            await _streakService.markCelebrationSeen();
-            _showCelebrationModal(
-              result.streakData!.streakCount,
-              result.streakData!.isNewStreak,
-            );
-          }
-        }
+  Future<void> _onAnyGoalCompleted() async {
+    await _loadData();
+    // Check if streak modal should show
+    final goalsData = await _goalsService.getDailyGoals();
+    final allDone =
+        goalsData.goals.isNotEmpty &&
+        goalsData.goals.every((g) => g.isCompleted);
+    if (allDone && mounted) {
+      final streak = await _streakService.checkAndUpdateStreak();
+      final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
+      if (!hasSeenToday && streak > 0 && mounted) {
+        await _streakService.markCelebrationSeen();
+        _showCelebrationModal(streak, false);
       }
-    } catch (e) {
-      debugPrint('❌ Error completing goal: $e');
     }
   }
+
+  // ──────────────────────────────────────────────────────────
+  // Gauge helpers (mirrors TrackingScreen logic)
+  // ──────────────────────────────────────────────────────────
+
+  GaugeDataState get _gaugeState {
+    if (_isLoading && _currentReading == null) return GaugeDataState.loading;
+    if (_currentReading == null ||
+        _currentReading!.source == DataSource.none ||
+        _currentReading!.stressLevel == null) {
+      return GaugeDataState.noData;
+    }
+    return GaugeDataState.hasData;
+  }
+
+  String _trendLabel() {
+    final level = _currentReading?.stressLevel;
+    if (level == null) return '—';
+    if (level <= 40) return 'Trending down ↓';
+    if (level <= 70) return 'Moderate';
+    return 'Elevated ↑';
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Build
+  // ──────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -330,15 +343,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildStatsRow() {
     final totalGoals = _dailyGoals.isNotEmpty ? _dailyGoals.length : 2;
-
     return Row(
       children: [
         Expanded(
           child: GestureDetector(
             onTap: () {
-              if (_streakCount > 0) {
-                _showCelebrationModal(_streakCount, false);
-              }
+              if (_streakCount > 0) _showCelebrationModal(_streakCount, false);
             },
             child: _buildStatCard(
               icon: '🔥',
@@ -394,6 +404,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildStressLevelCard() {
+    final reading = _currentReading;
+    final confidence = reading?.confidence ?? 0;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.lg),
@@ -405,123 +418,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Current Stress Level', style: AppTextStyles.h4),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.xs,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [Text('Current Stress Level', style: AppTextStyles.h4)],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Shared gauge — driven by the exact same StressReading
+          StressGauge(
+            level: reading?.stressLevel,
+            maxLevel: 100,
+            dataState: _gaugeState,
+            dataSourceLabel: reading?.source.label,
+          ),
+
+          const SizedBox(height: AppSpacing.lg),
+
+          // Show confidence bar only when we have real data
+          if (_gaugeState == GaugeDataState.hasData) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'AI Confidence',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
                 ),
-                decoration: BoxDecoration(
-                  color: AppColors.stressLow.withValues(alpha: 0.15),
-                  borderRadius: AppRadius.roundBorder,
-                ),
-                child: Text(
-                  'Low',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: AppColors.stressLow,
+                Text(
+                  '$confidence%',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            ClipRRect(
+              borderRadius: AppRadius.smBorder,
+              child: LinearProgressIndicator(
+                value: confidence / 100,
+                minHeight: 8,
+                backgroundColor: AppColors.border,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  confidence > 70
+                      ? AppColors.stressLow
+                      : confidence > 30
+                      ? AppColors.stressMedium
+                      : AppColors.stressHigh,
+                ),
               ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          SizedBox(
-            width: 160,
-            height: 160,
-            child: Stack(
-              alignment: Alignment.center,
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Row(
               children: [
-                SizedBox(
-                  width: 160,
-                  height: 160,
-                  child: CircularProgressIndicator(
-                    value: 1.0,
-                    strokeWidth: 12,
-                    backgroundColor: AppColors.border,
-                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.border),
+                Icon(Icons.trending_down, color: AppColors.stressLow, size: 20),
+                const SizedBox(width: AppSpacing.sm),
+                Text(
+                  _trendLabel(),
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
                   ),
-                ),
-                SizedBox(
-                  width: 160,
-                  height: 160,
-                  child: CircularProgressIndicator(
-                    value: 0.35,
-                    strokeWidth: 12,
-                    backgroundColor: Colors.transparent,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.textSecondary,
-                    ),
-                    strokeCap: StrokeCap.round,
-                  ),
-                ),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '35',
-                      style: AppTextStyles.h1.copyWith(
-                        fontSize: 48,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      'Low Stress',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'AI Confidence',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Text(
-                '92 %',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          ClipRRect(
-            borderRadius: AppRadius.smBorder,
-            child: LinearProgressIndicator(
-              value: 0.92,
-              minHeight: 8,
-              backgroundColor: AppColors.border,
-              valueColor: const AlwaysStoppedAnimation<Color>(
-                AppColors.stressLow,
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              Icon(Icons.trending_down, color: AppColors.stressLow, size: 20),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                'Trending down from yesterday',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
+          ],
         ],
       ),
     );
@@ -574,51 +535,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         const SizedBox(height: AppSpacing.md),
-
-        // Dynamic goals list
-        if (_dailyGoals.isEmpty)
         // Show default goals if none set
-        ...[
+        if (_dailyGoals.isEmpty) ...[
           _buildDefaultGoalItem(
             icon: Icons.air,
             title: 'Practice Breathing',
             iconColor: AppColors.primary,
-            onTap: () async {
-              final result = await Navigator.push<bool>(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const GuidedBreathingScreen(),
-                ),
-              );
-              if (result == true) {
-                _completeGoal('breathing');
-              }
-            },
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const GuidedBreathingScreen(),
+              ),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           _buildDefaultGoalItem(
             icon: Icons.show_chart,
             title: 'Check Stress Levels',
             iconColor: AppColors.warning,
-            onTap: () {
-              setState(() => _currentIndex = 1);
-              _completeGoal('stress_check');
-            },
+            onTap: () => setState(() => _currentIndex = 1),
           ),
         ] else
           // Show user's selected goals
           ..._dailyGoals.asMap().entries.map((entry) {
             final index = entry.key;
             final goal = entry.value;
-            final goalOption = goal.goalOption;
-
             return Padding(
               padding: EdgeInsets.only(
                 bottom: index < _dailyGoals.length - 1 ? AppSpacing.sm : 0,
               ),
               child: _buildGoalItem(
                 goal: goal,
-                goalOption: goalOption,
+                goalOption: goal.goalOption,
                 onTap: () => _onGoalTap(goal),
               ),
             );
@@ -812,24 +760,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // Widget _buildEncouragement() {
-  //   return Center(
-  //     child: Row(
-  //       mainAxisSize: MainAxisSize.min,
-  //       children: [
-  //         Text(
-  //           "You're doing great today! ",
-  //           style: AppTextStyles.bodyMedium.copyWith(
-  //             color: AppColors.stressLow,
-  //             fontWeight: FontWeight.w500,
-  //           ),
-  //         ),
-  //         const Text('🌱', style: TextStyle(fontSize: 16)),
-  //       ],
-  //     ),
-  //   );
-  // }
-
   Widget _buildEncouragement() {
     return Column(
       children: [
@@ -849,12 +779,55 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
 
-        // Debug: Test ML Model Button
-        if (kDebugMode) ...[
-          const SizedBox(height: AppSpacing.lg),
-          _buildTestMLButton(),
-        ],
+        // Test elements
+        const SizedBox(height: AppSpacing.lg),
+        _buildTestMLButton(),
+        _buildNotificationButton(),
       ],
+    );
+  }
+
+  Widget _buildNotificationButton() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: AppRadius.smBorder,
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _testNotification,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Test Headset Notification'),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                final feedback = DeviceFeedbackService();
+                await feedback.triggerFeedback(context);
+                debugPrint('✅ triggerFeedback called');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              child: const Text('Test Device Feedback'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -916,14 +889,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final stressService = StressPredictionService();
 
-    // Step 1: Check model status
     debugPrint('📍 Step 1: Checking model status...');
     final status = await stressService.getModelStatus();
     debugPrint('   Models loaded: ${status.modelsLoaded}');
     debugPrint('   Available models: ${status.availableModels}');
     debugPrint('');
 
-    // Step 2: Generate mock health data
     debugPrint('📍 Step 2: Generating mock health data...');
 
     // Simulate Garmin smartwatch data
@@ -952,15 +923,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       14.8,
     ];
     final mockHrValues = <double>[72, 75, 71, 73, 74, 76, 70, 72, 74, 73];
-
-    debugPrint('   HRV values: $mockHrvValues');
-    debugPrint('   RR values: $mockRrValues');
-    debugPrint('   HR values: $mockHrValues');
     debugPrint('');
 
-    // Step 3: Make prediction
     debugPrint('📍 Step 3: Calling ML API...');
-
     try {
       final prediction = await stressService.predictStress(
         hrvValues: mockHrvValues,
@@ -986,7 +951,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '✅ Stress: ${prediction.stressLevel}% (${prediction.stressLabel}) - Confidence: ${prediction.confidence}%',
+              '✅ Stress: ${prediction.stressLevel}% — Confidence: ${prediction.confidence}%',
             ),
             backgroundColor: prediction.isLowStress
                 ? AppColors.success
@@ -998,9 +963,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     } catch (e) {
-      debugPrint('');
       debugPrint('❌ PREDICTION ERROR: $e');
-      debugPrint('');
 
       // Try mock prediction as fallback
       debugPrint('📍 Step 4: Trying mock prediction...');
@@ -1020,15 +983,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                '⚠️ Used mock: Stress ${mockPrediction.stressLevel}% (${mockPrediction.stressLabel})',
+                '⚠️ Used mock: Stress ${mockPrediction.stressLevel}%',
               ),
               backgroundColor: AppColors.warning,
             ),
           );
         }
       } catch (e2) {
-        debugPrint('❌ Mock prediction also failed: $e2');
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -1039,9 +1000,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
     }
+  }
 
-    debugPrint('');
-    debugPrint('════════════════════════════════════════════════════════════');
-    debugPrint('');
+  Future<void> _testNotification() async {
+    final notifService = NotificationService();
+    try {
+      await notifService.showLocalNotification(
+        title: '🔔 Notification successfully sent',
+        body: 'Notification service is working correctly.',
+      );
+    } catch (e) {
+      debugPrint('❌ showLocalNotification failed: $e');
+    }
   }
 }

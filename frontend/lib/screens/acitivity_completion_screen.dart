@@ -236,6 +236,7 @@ class _ActivityCompletionScreenState extends State<ActivityCompletionScreen>
               _goalUpdated = true;
               _goalUpdateMessage = 'Daily goal completed! 🎉';
             });
+            GoalsService.onGoalCompleted?.call(); // Fires dashboard reload
           }
         }
       } else {

@@ -196,12 +196,9 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   }
 
   void _setupPulseAnimation() {
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 400),
-      vsync: this,
-    );
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.15).animate(
-      CurvedAnimation(parent: _pulseController!, curve: Curves.easeInOut),
+    _pulseController = AnimationController(vsync: this);
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.2).animate(
+      CurvedAnimation(parent: _pulseController!, curve: Curves.easeOutBack),
     );
   }
 
@@ -297,6 +294,11 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   }
 
   void _startBeatLoop() {
+    // Set animation speed to 25% of the beat interval for a snappy "pop"
+    _pulseController?.duration = Duration(
+      milliseconds: (_stressLevel.intervalMs * 0.25).toInt(),
+    );
+
     _beatTimer = Timer.periodic(
       Duration(milliseconds: _stressLevel.intervalMs),
       (_) => _triggerBeat(),
@@ -309,6 +311,7 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     // Select random button
     final nextButton = _random.nextInt(4);
 
+    // Clear previous, set new active
     setState(() {
       _activeButton = nextButton;
     });
@@ -319,8 +322,11 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     // Haptic feedback on beat
     HapticFeedback.lightImpact();
 
+    // Window lasts until just before the next beat instead of fixed duration
+    final windowMs = (_stressLevel.intervalMs * 0.9).toInt();
+
     // Beat window - if not tapped in time, reset streak (for low stress mode)
-    Future.delayed(const Duration(milliseconds: 400), () {
+    Future.delayed(Duration(milliseconds: windowMs), () {
       if (_activeButton == nextButton && mounted) {
         // Missed the beat
         if (_stressLevel == RhythmStressLevel.low) {

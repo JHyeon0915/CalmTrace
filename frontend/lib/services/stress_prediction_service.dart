@@ -43,6 +43,8 @@ class StressPredictionService {
         body['emotiv_metrics'] = emotivMetrics.toJson();
       }
 
+      print('📡 Sending prediction request with body: ${jsonEncode(body)}');
+
       final response = await _apiClient.post(
         '/stress/predict',
         body: jsonEncode(body),

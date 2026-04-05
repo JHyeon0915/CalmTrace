@@ -4,6 +4,7 @@ import '../network/api_client.dart';
 import '../models/goal_model.dart';
 
 class GoalsService {
+  static VoidCallback? onGoalCompleted;
   final ApiClient _apiClient = ApiClient();
 
   /// Get today's daily goals
@@ -35,7 +36,7 @@ class GoalsService {
     try {
       final response = await _apiClient.post(
         '/goals/set',
-        body: json.encode({'goalTypes': goalTypes}),
+        body: {'goalTypes': goalTypes},
       );
 
       if (response.statusCode == 200) {
@@ -57,7 +58,7 @@ class GoalsService {
     try {
       final response = await _apiClient.post(
         '/goals/complete',
-        body: json.encode({'goalType': goalType}),
+        body: {'goalType': goalType},
       );
 
       if (response.statusCode == 200) {

@@ -65,9 +65,15 @@ class _LoginScreenState extends State<LoginScreen>
 
     setState(() => _isLoading = true);
 
+    debugPrint('🔐 Attempting login with: ${_emailController.text}');
+
     final result = await _authService.signIn(
       email: _emailController.text,
       password: _passwordController.text,
+    );
+
+    debugPrint(
+      '🔐 Login result: ${result.success}, error: ${result.errorMessage}',
     );
 
     if (mounted) {
