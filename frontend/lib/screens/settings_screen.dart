@@ -46,7 +46,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _selectedFeedback = feedbackType;
           _notificationsEnabled = notifPrefs.enabled;
           _isUnlimited =
-              notifPrefs.maxPerDay == 'unlimited' || notifPrefs.maxPerDay == null;
+              notifPrefs.maxPerDay == 'unlimited' ||
+              notifPrefs.maxPerDay == null;
           if (!_isUnlimited && notifPrefs.maxPerDay is int) {
             _frequency = notifPrefs.maxPerDay;
           }
@@ -100,17 +101,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       initialTime: currentTime,
       builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: ColorScheme.light(primary: AppColors.primary),
-        ),
+        data: Theme.of(
+          context,
+        ).copyWith(colorScheme: ColorScheme.light(primary: AppColors.primary)),
         child: child!,
       ),
     );
     if (picked != null) {
       final formatted = _formatTime(picked);
       setState(() {
-        if (isStart) _quietStart = formatted;
-        else _quietEnd = formatted;
+        if (isStart) {
+          _quietStart = formatted;
+        } else {
+          _quietEnd = formatted;
+        }
       });
       _updateNotificationPreferences();
     }
@@ -154,13 +158,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: Text(
               'Confirm',
-              style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: AppColors.success,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -194,7 +204,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final confirmDelete = await _showConfirmDialog(
       title: 'Final Confirmation',
-      message: 'This is your last chance to keep your data. Delete your account permanently?',
+      message:
+          'This is your last chance to keep your data. Delete your account permanently?',
       confirmText: 'Yes, Delete',
       isDestructive: true,
     );
@@ -230,7 +241,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
@@ -300,7 +314,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() => _notificationsEnabled = v);
                       _updateNotificationPreferences();
                     },
-                    onFrequencyChanged: (v) => setState(() => _frequency = v),
+                    onFrequencyChanged: (v) {
+                      setState(() => _frequency = v);
+                      _notificationService.updatePreferences(maxPerDay: v);
+                    },
                     onUnlimitedToggle: () {
                       setState(() => _isUnlimited = !_isUnlimited);
                       _updateNotificationPreferences();

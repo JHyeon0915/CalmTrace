@@ -189,14 +189,10 @@ class _FrequencySection extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
             decoration: BoxDecoration(
-              color: isUnlimited
-                  ? const Color(0xFF6B9BD1)
-                  : AppColors.surface,
+              color: isUnlimited ? const Color(0xFF6B9BD1) : AppColors.surface,
               borderRadius: AppRadius.mdBorder,
               border: Border.all(
-                color: isUnlimited
-                    ? const Color(0xFF6B9BD1)
-                    : AppColors.border,
+                color: isUnlimited ? const Color(0xFF6B9BD1) : AppColors.border,
               ),
             ),
             child: Text(
