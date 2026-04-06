@@ -4,6 +4,10 @@ import '../constants/app_constants.dart';
 import '../services/auth_service.dart';
 import '../services/streak_service.dart';
 import '../services/goals_service.dart';
+import '../services/stress_prediction_service.dart';
+import '../services/notification_service.dart';
+import '../services/device_feedback_service.dart';
+import '../services/emotiv_service.dart';
 import '../models/stress_data_source.dart';
 import '../models/goal_model.dart';
 import '../models/daily_tip_model.dart';
@@ -11,16 +15,18 @@ import '../widgets/app_bottom_nav_bar.dart';
 import '../widgets/streak_celebration_modal.dart';
 import '../widgets/set_goals_modal.dart';
 import '../widgets/stress_gauge.dart';
+import '../widgets/dashboard/dashboard_header.dart';
+import '../widgets/dashboard/stat_card.dart';
+import '../widgets/dashboard/dashboard_stress_card.dart';
+import '../widgets/dashboard/todays_goals_section.dart';
+import '../widgets/dashboard/daily_tip_card.dart';
+import '../widgets/dashboard/debug_panel.dart';
 import 'settings_screen.dart';
 import 'games_screen.dart';
 import 'therapy_hub_screen.dart';
 import 'guided_breathing_screen.dart';
 import 'ai_coach_screen.dart';
 import 'tracking_screen.dart';
-import '../services/stress_prediction_service.dart';
-import '../services/notification_service.dart';
-import '../services/device_feedback_service.dart';
-import '../services/emotiv_service.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -38,26 +44,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int _streakCount = 0;
   bool _isLoading = true;
 
-  // Goals data
   List<UserGoal> _dailyGoals = [];
   int _goalsCompleted = 0;
 
-  // Stress — driven by the shared fusion service
   StressReading? _currentReading;
   StreamSubscription<StressReading>? _fusionSubscription;
 
-  // Daily tip - gets set once based on today's date
   late final DailyTip _todaysTip;
 
   @override
   void initState() {
     super.initState();
     _todaysTip = DailyTips.getTodaysTip();
-
     _loadData();
     GoalsService.onGoalCompleted = _onAnyGoalCompleted;
-
-    // Initialize EMOTIV Cortex connection
     WidgetsBinding.instance.addPostFrameCallback((_) {
       EmotivService().fullConnect(context);
     });
@@ -73,11 +73,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     await Future.wait([_loadStreakData(), _loadGoalsData(), _loadStressData()]);
   }
 
-  /// Fetch a fresh reading. Safe to call multiple times — the fusion
-  /// service deduplicates and broadcasts to both screens.
   Future<void> _loadStressData() async {
-    // Only fetch if we have no reading yet (TrackingScreen may have
-    // already populated it via the shared singleton).
     if (_currentReading != null) return;
   }
 
@@ -85,23 +81,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final streak = await _streakService.checkAndUpdateStreak();
       debugPrint('📊 Streak from API: $streak');
-
       if (!mounted) return;
-
       setState(() {
         _streakCount = streak;
         _isLoading = false;
       });
-
-      // Show celebration if user has a streak and hasn't seen today's celebration
       if (streak > 0) {
         final hasSeenToday = await _streakService.hasSeenTodaysCelebration();
-        debugPrint('👀 Has seen today celebration: $hasSeenToday');
-
         if (!hasSeenToday && mounted) {
           await Future.delayed(const Duration(milliseconds: 500));
           if (!mounted) return;
-
           await _streakService.markCelebrationSeen();
           _showCelebrationModal(streak, false);
         }
@@ -115,10 +104,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadGoalsData() async {
     try {
       final goalsData = await _goalsService.getDailyGoals();
-      debugPrint('📋 Goals loaded: ${goalsData.goals.length}');
-
       if (!mounted) return;
-
       setState(() {
         _dailyGoals = goalsData.goals;
         _goalsCompleted = goalsData.completedCount;
@@ -171,9 +157,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final previousIndex = _currentIndex;
     setState(() => _currentIndex = index);
     // Reload when returning home so completions from other screens are reflected
-    if (index == 0 && previousIndex != 0) {
-      _loadData();
-    }
+    if (index == 0 && previousIndex != 0) _loadData();
   }
 
   Future<void> _onGoalTap(UserGoal goal) async {
@@ -183,13 +167,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case GoalDestination.breathing:
         Navigator.push<bool>(
           context,
-          MaterialPageRoute(
-            builder: (context) => const GuidedBreathingScreen(),
-          ),
+          MaterialPageRoute(builder: (_) => const GuidedBreathingScreen()),
         );
         break;
       case GoalDestination.tracking:
-        // Navigate to tracking page (index 1 in bottom nav)
         setState(() => _currentIndex = 1);
         break;
       case GoalDestination.therapy:
@@ -201,7 +182,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case GoalDestination.chat:
         Navigator.push<bool>(
           context,
-          MaterialPageRoute(builder: (context) => const AICoachScreen()),
+          MaterialPageRoute(builder: (_) => const AICoachScreen()),
         );
         break;
     }
@@ -209,7 +190,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _onAnyGoalCompleted() async {
     await _loadData();
-    // Check if streak modal should show
     final goalsData = await _goalsService.getDailyGoals();
     final allDone =
         goalsData.goals.isNotEmpty &&
@@ -223,10 +203,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
     }
   }
-
-  // ──────────────────────────────────────────────────────────
-  // Gauge helpers (mirrors TrackingScreen logic)
-  // ──────────────────────────────────────────────────────────
 
   GaugeDataState get _gaugeState {
     if (_isLoading && _currentReading == null) return GaugeDataState.loading;
@@ -246,656 +222,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return 'Elevated ↑';
   }
 
-  // ──────────────────────────────────────────────────────────
-  // Build
-  // ──────────────────────────────────────────────────────────
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(child: _buildBody()),
-      bottomNavigationBar: AppBottomNavBar(
-        currentIndex: _currentIndex,
-        onTap: _onNavTap,
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    switch (_currentIndex) {
-      case 0:
-        return _buildHomeContent();
-      case 1:
-        return const TrackingScreen();
-      case 2:
-        return const TherapyHubScreen();
-      case 3:
-        return const GamesScreen();
-      default:
-        return _buildHomeContent();
-    }
-  }
-
-  Widget _buildHomeContent() {
-    final user = _authService.currentUser;
-    final displayName = user?.displayName ?? 'there';
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: AppSpacing.lg),
-          _buildHeader(displayName),
-          const SizedBox(height: AppSpacing.lg),
-          _buildStatsRow(),
-          const SizedBox(height: AppSpacing.lg),
-          _buildStressLevelCard(),
-          const SizedBox(height: AppSpacing.lg),
-          _buildTodaysGoals(),
-          const SizedBox(height: AppSpacing.lg),
-          _buildTodaysTip(),
-          const SizedBox(height: AppSpacing.lg),
-          _buildEncouragement(),
-          const SizedBox(height: AppSpacing.xl),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader(String name) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Hi, $name', style: AppTextStyles.h2),
-            const SizedBox(height: 4),
-            Text('Ready to find your calm?', style: AppTextStyles.bodyMedium),
-          ],
-        ),
-        GestureDetector(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const SettingsScreen()),
-            );
-          },
-          child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: AppRadius.smBorder,
-            ),
-            child: const Icon(
-              Icons.settings_outlined,
-              color: AppColors.textSecondary,
-              size: 22,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatsRow() {
-    final totalGoals = _dailyGoals.isNotEmpty ? _dailyGoals.length : 2;
-    return Row(
-      children: [
-        Expanded(
-          child: GestureDetector(
-            onTap: () {
-              if (_streakCount > 0) _showCelebrationModal(_streakCount, false);
-            },
-            child: _buildStatCard(
-              icon: '🔥',
-              value: _isLoading ? '-' : '$_streakCount',
-              label: 'Day Streak',
-              backgroundColor: const Color(0xFFFFF4E5),
-            ),
-          ),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: _buildStatCard(
-            icon: '🏆',
-            value: '$_goalsCompleted/$totalGoals',
-            label: 'Daily Goals',
-            backgroundColor: const Color(0xFFFFF9E5),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard({
-    required String icon,
-    required String value,
-    required String label,
-    required Color backgroundColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: AppRadius.lgBorder,
-      ),
-      child: Column(
-        children: [
-          Text(icon, style: const TextStyle(fontSize: 28)),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            value,
-            style: AppTextStyles.h3.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: AppTextStyles.bodySmall.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStressLevelCard() {
-    final reading = _currentReading;
-    final confidence = reading?.confidence ?? 0;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: AppRadius.lgBorder,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [Text('Current Stress Level', style: AppTextStyles.h4)],
-          ),
-          const SizedBox(height: AppSpacing.lg),
-
-          // Shared gauge — driven by the exact same StressReading
-          StressGauge(
-            level: reading?.stressLevel,
-            maxLevel: 100,
-            dataState: _gaugeState,
-            dataSourceLabel: reading?.source.label,
-          ),
-
-          const SizedBox(height: AppSpacing.lg),
-
-          // Show confidence bar only when we have real data
-          if (_gaugeState == GaugeDataState.hasData) ...[
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'AI Confidence',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                Text(
-                  '$confidence%',
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            ClipRRect(
-              borderRadius: AppRadius.smBorder,
-              child: LinearProgressIndicator(
-                value: confidence / 100,
-                minHeight: 8,
-                backgroundColor: AppColors.border,
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  confidence > 70
-                      ? AppColors.stressLow
-                      : confidence > 30
-                      ? AppColors.stressMedium
-                      : AppColors.stressHigh,
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                Icon(Icons.trending_down, color: AppColors.stressLow, size: 20),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  _trendLabel(),
-                  style: AppTextStyles.bodySmall.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTodaysGoals() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.track_changes,
-                    color: AppColors.primary,
-                    size: 14,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Text(
-                  "Today's Goals",
-                  style: AppTextStyles.h4.copyWith(fontSize: 16),
-                ),
-              ],
-            ),
-            TextButton(
-              onPressed: _showSetGoalsModal,
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: Text(
-                'Change Goals',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        // Show default goals if none set
-        if (_dailyGoals.isEmpty) ...[
-          _buildDefaultGoalItem(
-            icon: Icons.air,
-            title: 'Practice Breathing',
-            iconColor: AppColors.primary,
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const GuidedBreathingScreen(),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          _buildDefaultGoalItem(
-            icon: Icons.show_chart,
-            title: 'Check Stress Levels',
-            iconColor: AppColors.warning,
-            onTap: () => setState(() => _currentIndex = 1),
-          ),
-        ] else
-          // Show user's selected goals
-          ..._dailyGoals.asMap().entries.map((entry) {
-            final index = entry.key;
-            final goal = entry.value;
-            return Padding(
-              padding: EdgeInsets.only(
-                bottom: index < _dailyGoals.length - 1 ? AppSpacing.sm : 0,
-              ),
-              child: _buildGoalItem(
-                goal: goal,
-                goalOption: goal.goalOption,
-                onTap: () => _onGoalTap(goal),
-              ),
-            );
-          }),
-      ],
-    );
-  }
-
-  Widget _buildGoalItem({
-    required UserGoal goal,
-    required GoalOption? goalOption,
-    required VoidCallback onTap,
-  }) {
-    final icon = goalOption?.icon ?? Icons.check_circle_outline;
-    final iconColor = goalOption?.iconColor ?? AppColors.primary;
-    final title = goalOption?.title ?? goal.title;
-
-    return GestureDetector(
-      onTap: goal.isCompleted ? null : onTap,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: goal.isCompleted
-              ? AppColors.success.withValues(alpha: 0.05)
-              : AppColors.background,
-          borderRadius: AppRadius.mdBorder,
-          border: Border.all(
-            color: goal.isCompleted ? AppColors.success : AppColors.border,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: goal.isCompleted
-                    ? AppColors.success.withValues(alpha: 0.1)
-                    : iconColor.withValues(alpha: 0.1),
-                borderRadius: AppRadius.smBorder,
-              ),
-              child: Icon(
-                goal.isCompleted ? Icons.check : icon,
-                color: goal.isCompleted ? AppColors.success : iconColor,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: AppTextStyles.bodyLarge.copyWith(
-                      fontWeight: FontWeight.w500,
-                      decoration: goal.isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                      color: goal.isCompleted
-                          ? AppColors.textSecondary
-                          : AppColors.textPrimary,
-                    ),
-                  ),
-                  if (goal.isCompleted)
-                    Text(
-                      'Completed',
-                      style: AppTextStyles.bodySmall.copyWith(
-                        color: AppColors.success,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (!goal.isCompleted)
-              const Icon(
-                Icons.chevron_right,
-                color: AppColors.textSecondary,
-                size: 20,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDefaultGoalItem({
-    required IconData icon,
-    required String title,
-    required Color iconColor,
-    VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        decoration: BoxDecoration(
-          color: AppColors.background,
-          borderRadius: AppRadius.mdBorder,
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: iconColor.withValues(alpha: 0.1),
-                borderRadius: AppRadius.smBorder,
-              ),
-              child: Icon(icon, color: iconColor, size: 20),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Text(
-                title,
-                style: AppTextStyles.bodyLarge.copyWith(
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            if (onTap != null)
-              const Icon(
-                Icons.chevron_right,
-                color: AppColors.textSecondary,
-                size: 20,
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTodaysTip() {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.lg),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: AppRadius.lgBorder,
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF9E5),
-                  borderRadius: AppRadius.smBorder,
-                ),
-                child: Center(
-                  child: Text(
-                    _todaysTip.emoji,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Text(
-                "Today's Tip",
-                style: AppTextStyles.h4.copyWith(fontSize: 16),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(_todaysTip.description, style: AppTextStyles.bodyMedium),
-          const SizedBox(height: AppSpacing.sm),
-          RichText(
-            text: TextSpan(
-              style: AppTextStyles.bodySmall,
-              children: [
-                TextSpan(
-                  text: '${_todaysTip.actionPrefix} ',
-                  style: TextStyle(
-                    color: AppColors.primaryDark,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                TextSpan(
-                  text: _todaysTip.actionText,
-                  style: TextStyle(color: AppColors.textSecondary),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEncouragement() {
-    return Column(
-      children: [
-        Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                "You're doing great today! ",
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: AppColors.stressLow,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const Text('🌱', style: TextStyle(fontSize: 16)),
-            ],
-          ),
-        ),
-
-        // Test elements
-        const SizedBox(height: AppSpacing.lg),
-        _buildTestMLButton(),
-        _buildNotificationButton(),
-      ],
-    );
-  }
-
-  Widget _buildNotificationButton() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: AppRadius.smBorder,
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: AppSpacing.sm),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _testNotification,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.purple,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: const Text('Test Headset Notification'),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () async {
-                final feedback = DeviceFeedbackService();
-                await feedback.triggerFeedback(context);
-                debugPrint('✅ triggerFeedback called');
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: const Text('Test Device Feedback'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTestMLButton() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF0F0),
-        borderRadius: AppRadius.mdBorder,
-        border: Border.all(color: const Color(0xFFFFCCCC)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.bug_report, color: Colors.red[400], size: 18),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                'Debug: ML Model Test',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: Colors.red[400],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _testMLPrediction,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF6B9BD1),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-              ),
-              child: const Text('Test Stress Prediction'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _testMLPrediction() async {
-    debugPrint('');
-    debugPrint(
-      '╔════════════════════════════════════════════════════════════╗',
-    );
-    debugPrint(
-      '║              ML STRESS PREDICTION TEST                     ║',
-    );
-    debugPrint(
-      '╚════════════════════════════════════════════════════════════╝',
-    );
-    debugPrint('');
-
     final stressService = StressPredictionService();
-
-    debugPrint('📍 Step 1: Checking model status...');
     final status = await stressService.getModelStatus();
-    debugPrint('   Models loaded: ${status.modelsLoaded}');
+    debugPrint('Models loaded: ${status.modelsLoaded}');
     debugPrint('   Available models: ${status.availableModels}');
     debugPrint('');
-
-    debugPrint('📍 Step 2: Generating mock health data...');
 
     // Simulate Garmin smartwatch data
     final mockHrvValues = <double>[
@@ -923,9 +255,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       14.8,
     ];
     final mockHrValues = <double>[72, 75, 71, 73, 74, 76, 70, 72, 74, 73];
-    debugPrint('');
 
-    debugPrint('📍 Step 3: Calling ML API...');
     try {
       final prediction = await stressService.predictStress(
         hrvValues: mockHrvValues,
@@ -982,9 +312,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                '⚠️ Used mock: Stress ${mockPrediction.stressLevel}%',
-              ),
+              content: Text('⚠️ Mock: Stress ${mockPrediction.stressLevel}%'),
               backgroundColor: AppColors.warning,
             ),
           );
@@ -1003,14 +331,115 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _testNotification() async {
-    final notifService = NotificationService();
     try {
-      await notifService.showLocalNotification(
+      await NotificationService().showLocalNotification(
         title: '🔔 Notification successfully sent',
         body: 'Notification service is working correctly.',
       );
     } catch (e) {
       debugPrint('❌ showLocalNotification failed: $e');
     }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(child: _buildBody()),
+      bottomNavigationBar: AppBottomNavBar(
+        currentIndex: _currentIndex,
+        onTap: _onNavTap,
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    switch (_currentIndex) {
+      case 0:
+        return _buildHomeContent();
+      case 1:
+        return const TrackingScreen();
+      case 2:
+        return const TherapyHubScreen();
+      case 3:
+        return const GamesScreen();
+      default:
+        return _buildHomeContent();
+    }
+  }
+
+  Widget _buildHomeContent() {
+    final displayName = _authService.currentUser?.displayName ?? 'there';
+    final totalGoals = _dailyGoals.isNotEmpty ? _dailyGoals.length : 2;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: AppSpacing.lg),
+          DashboardHeader(
+            displayName: displayName,
+            onSettingsTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          Row(
+            children: [
+              Expanded(
+                child: StatCard(
+                  icon: '🔥',
+                  value: _isLoading ? '-' : '$_streakCount',
+                  label: 'Day Streak',
+                  backgroundColor: const Color(0xFFFFF4E5),
+                  onTap: _streakCount > 0
+                      ? () => _showCelebrationModal(_streakCount, false)
+                      : null,
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: StatCard(
+                  icon: '🏆',
+                  value: '$_goalsCompleted/$totalGoals',
+                  label: 'Daily Goals',
+                  backgroundColor: const Color(0xFFFFF9E5),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          DashboardStressCard(
+            reading: _currentReading,
+            gaugeState: _gaugeState,
+            trendLabel: _trendLabel(),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          TodaysGoalsSection(
+            dailyGoals: _dailyGoals,
+            onGoalTap: _onGoalTap,
+            onSetGoalsTap: _showSetGoalsModal,
+            onBreathingTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const GuidedBreathingScreen()),
+            ),
+            onTrackingTap: () => setState(() => _currentIndex = 1),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          DailyTipCard(tip: _todaysTip),
+          const SizedBox(height: AppSpacing.lg),
+          DebugPanel(
+            onTestML: _testMLPrediction,
+            onTestNotification: _testNotification,
+            onTestDeviceFeedback: () async {
+              await DeviceFeedbackService().triggerFeedback(context);
+            },
+          ),
+          const SizedBox(height: AppSpacing.xl),
+        ],
+      ),
+    );
   }
 }
