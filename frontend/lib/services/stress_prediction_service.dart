@@ -45,10 +45,7 @@ class StressPredictionService {
 
       print('📡 Sending prediction request with body: ${jsonEncode(body)}');
 
-      final response = await _apiClient.post(
-        '/stress/predict',
-        body: jsonEncode(body),
-      );
+      final response = await _apiClient.post('/stress/predict', body: body);
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -96,7 +93,7 @@ class StressPredictionService {
 
       final response = await _apiClient.post(
         '/stress/predict/explain',
-        body: jsonEncode(body),
+        body: body,
       );
 
       if (response.statusCode == 200) {

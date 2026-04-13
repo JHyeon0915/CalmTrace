@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../constants/app_constants.dart';
+import '../widgets/rhythm_flow/rhythm_app_bar.dart';
+import '../widgets/stress_level_selector.dart';
+import '../widgets/rhythm_flow/song_progress_bar.dart';
+import '../widgets/rhythm_flow/rhythm_tap_button.dart';
+import '../widgets/rhythm_flow/game_controls.dart';
 import 'game_completion_screen.dart';
 
 enum RhythmStressLevel { high, medium, low }
@@ -56,30 +61,29 @@ extension RhythmStressLevelExtension on RhythmStressLevel {
   int get bpm {
     switch (this) {
       case RhythmStressLevel.high:
-        return 55; // Chill acoustic guitar
+        return 55;
       case RhythmStressLevel.medium:
-        return 80; // Touching piano
+        return 80;
       case RhythmStressLevel.low:
-        return 100; // Technology vibes
+        return 100;
     }
   }
 
   int get intervalMs {
-    // interval = 60000 / BPM (milliseconds per beat)
     switch (this) {
       case RhythmStressLevel.high:
-        return 1091; // 60000/55 = ~1091ms per beat
+        return 1091;
       case RhythmStressLevel.medium:
-        return 750; // 60000/80 = 750ms per beat
+        return 750;
       case RhythmStressLevel.low:
-        return 600; // 60000/100 = 600ms per beat
+        return 600;
     }
   }
 
   int get pointMultiplier {
     switch (this) {
       case RhythmStressLevel.high:
-        return 2; // Double points for calm focus
+        return 2;
       case RhythmStressLevel.medium:
         return 1;
       case RhythmStressLevel.low:
@@ -87,10 +91,6 @@ extension RhythmStressLevelExtension on RhythmStressLevel {
     }
   }
 
-  /// Local audio assets (place MP3 files in assets/audio/)
-  /// - slow.mp3: Chill acoustic guitar 55 BPM (High stress)
-  /// - medium.mp3: Touching piano 80 BPM (Medium stress)
-  /// - fast.mp3: Technology vibes 100 BPM (Low stress)
   String get musicAsset {
     switch (this) {
       case RhythmStressLevel.high:
@@ -133,19 +133,16 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   Timer? _beatTimer;
   final Random _random = Random();
 
-  // Audio player for background music
   final AudioPlayer _audioPlayer = AudioPlayer();
   bool _isMusicPlaying = false;
   bool _isMusicEnabled = true;
 
-  // Song duration tracking
   Duration _songDuration = Duration.zero;
   Duration _songPosition = Duration.zero;
   StreamSubscription? _positionSubscription;
   StreamSubscription? _durationSubscription;
   StreamSubscription? _completionSubscription;
 
-  // Animation controller for active button
   AnimationController? _pulseController;
   Animation<double>? _pulseAnimation;
 
@@ -164,34 +161,17 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   }
 
   void _setupAudioPlayer() {
-    _audioPlayer.setReleaseMode(
-      ReleaseMode.stop,
-    ); // Don't loop - end when song finishes
+    _audioPlayer.setReleaseMode(ReleaseMode.stop);
     _audioPlayer.setVolume(0.5);
 
-    // Listen for song position
     _positionSubscription = _audioPlayer.onPositionChanged.listen((position) {
-      if (mounted) {
-        setState(() {
-          _songPosition = position;
-        });
-      }
+      if (mounted) setState(() => _songPosition = position);
     });
-
-    // Listen for song duration
     _durationSubscription = _audioPlayer.onDurationChanged.listen((duration) {
-      if (mounted) {
-        setState(() {
-          _songDuration = duration;
-        });
-      }
+      if (mounted) setState(() => _songDuration = duration);
     });
-
-    // Listen for song completion - END THE GAME
     _completionSubscription = _audioPlayer.onPlayerComplete.listen((_) {
-      if (mounted && _isPlaying) {
-        _endGame();
-      }
+      if (mounted && _isPlaying) _endGame();
     });
   }
 
@@ -240,23 +220,17 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
 
   Future<void> _playMusic() async {
     if (!_isMusicEnabled) return;
-
     try {
       await _audioPlayer.play(AssetSource(_stressLevel.musicAsset));
-      setState(() {
-        _isMusicPlaying = true;
-      });
+      setState(() => _isMusicPlaying = true);
     } catch (e) {
-      // Music failed to load, continue without it
       debugPrint('Failed to load music: $e');
     }
   }
 
   Future<void> _stopMusic() async {
     await _audioPlayer.stop();
-    setState(() {
-      _isMusicPlaying = false;
-    });
+    setState(() => _isMusicPlaying = false);
   }
 
   void _pauseGame() {
@@ -287,18 +261,14 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
   void _onStressLevelChanged(RhythmStressLevel level) {
     if (level != _stressLevel) {
       _resetGame();
-      setState(() {
-        _stressLevel = level;
-      });
+      setState(() => _stressLevel = level);
     }
   }
 
   void _startBeatLoop() {
-    // Set animation speed to 25% of the beat interval for a snappy "pop"
     _pulseController?.duration = Duration(
       milliseconds: (_stressLevel.intervalMs * 0.25).toInt(),
     );
-
     _beatTimer = Timer.periodic(
       Duration(milliseconds: _stressLevel.intervalMs),
       (_) => _triggerBeat(),
@@ -312,9 +282,7 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     final nextButton = _random.nextInt(4);
 
     // Clear previous, set new active
-    setState(() {
-      _activeButton = nextButton;
-    });
+    setState(() => _activeButton = nextButton);
 
     // Start pulse animation
     _pulseController?.forward();
@@ -322,21 +290,15 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
     // Haptic feedback on beat
     HapticFeedback.lightImpact();
 
-    // Window lasts until just before the next beat instead of fixed duration
+    // Window lasts until just before the next beat
     final windowMs = (_stressLevel.intervalMs * 0.9).toInt();
 
     // Beat window - if not tapped in time, reset streak (for low stress mode)
     Future.delayed(Duration(milliseconds: windowMs), () {
       if (_activeButton == nextButton && mounted) {
         // Missed the beat
-        if (_stressLevel == RhythmStressLevel.low) {
-          setState(() {
-            _streak = 0;
-          });
-        }
-        setState(() {
-          _activeButton = null;
-        });
+        if (_stressLevel == RhythmStressLevel.low) setState(() => _streak = 0);
+        setState(() => _activeButton = null);
         _pulseController?.reverse();
       }
     });
@@ -344,26 +306,20 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
 
   void _onButtonPress(int id) {
     if (!_isPlaying) return;
-
     if (_activeButton == id) {
-      // Correct timing!
-      final points = _stressLevel.pointMultiplier;
-
       setState(() {
-        _score += points;
+        _score += _stressLevel.pointMultiplier;
         _activeButton = null;
 
-        // Streak bonus for low stress mode
+        // Streak bonus every 5 streak for low stress mode
         if (_stressLevel == RhythmStressLevel.low) {
           _streak++;
-          // Bonus every 5 streak
           if (_streak % 5 == 0) {
             _score += 5;
             _showStreakBonus();
           }
         }
       });
-
       _pulseController?.reverse();
 
       // Success haptic
@@ -379,7 +335,7 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
           children: [
             const Icon(Icons.bolt, color: Colors.white, size: 18),
             const SizedBox(width: 8),
-            Text('Streak Bonus! +5 points'),
+            const Text('Streak Bonus! +5 points'),
           ],
         ),
         backgroundColor: const Color(0xFF7BC67E),
@@ -393,12 +349,6 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
         ),
       ),
     );
-  }
-
-  String _formatDuration(Duration duration) {
-    final mins = duration.inMinutes;
-    final secs = duration.inSeconds % 60;
-    return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -421,544 +371,93 @@ class _RhythmFlowScreenState extends State<RhythmFlowScreen>
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFFDF6E3), // Warm cream/orange top
-              Colors.white,
-            ],
+            colors: [Color(0xFFFDF6E3), Colors.white],
           ),
         ),
         child: SafeArea(
           child: Column(
             children: [
-              // App Bar
-              _buildAppBar(),
-
+              RhythmAppBar(
+                score: _score,
+                streak: _streak,
+                stressLevel: _stressLevel,
+                isMusicEnabled: _isMusicEnabled,
+                onBack: () {
+                  _resetGame();
+                  Navigator.pop(context);
+                },
+                onMusicToggle: () {
+                  setState(() => _isMusicEnabled = !_isMusicEnabled);
+                  if (_isPlaying) {
+                    _isMusicEnabled ? _playMusic() : _stopMusic();
+                  }
+                },
+                onReset: _resetGame,
+              ),
               const SizedBox(height: AppSpacing.md),
-
-              // Stress Level Selector (only when not playing)
-              if (!_isPlaying && !_isComplete) _buildStressLevelSelector(),
-
-              // Song Progress (when playing)
-              if (_isPlaying) _buildSongProgress(),
-
-              // Game Area
-              Expanded(child: _buildGameArea()),
-
-              // Instructions
-              _buildInstructions(),
-
+              if (!_isPlaying && !_isComplete)
+                StressLevelSelector(
+                  selected: _stressLevel,
+                  onChanged: _onStressLevelChanged,
+                ),
+              if (_isPlaying)
+                SongProgressBar(
+                  position: _songPosition,
+                  duration: _songDuration,
+                  stressLevel: _stressLevel,
+                ),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(height: AppSpacing.lg),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.xl,
+                        ),
+                        child: SizedBox(
+                          width: 280,
+                          height: 280,
+                          child: GridView.builder(
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  mainAxisSpacing: 16,
+                                  crossAxisSpacing: 16,
+                                ),
+                            itemCount: 4,
+                            itemBuilder: (context, index) {
+                              final button = _buttons[index];
+                              return RhythmTapButton(
+                                button: button,
+                                isActive: _activeButton == button.id,
+                                pulseAnimation: _pulseAnimation!,
+                                stressLevel: _stressLevel,
+                                onTap: () => _onButtonPress(button.id),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      GameControls(
+                        isPlaying: _isPlaying,
+                        stressLevel: _stressLevel,
+                        onStart: _startGame,
+                        onPause: _pauseGame,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                    ],
+                  ),
+                ),
+              ),
+              GameInstructions(stressLevel: _stressLevel),
               const SizedBox(height: AppSpacing.lg),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildSongProgress() {
-    final progress = _songDuration.inMilliseconds > 0
-        ? _songPosition.inMilliseconds / _songDuration.inMilliseconds
-        : 0.0;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.sm,
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                _formatDuration(_songPosition),
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Row(
-                children: [
-                  Icon(Icons.music_note, size: 16, color: _stressLevel.color),
-                  const SizedBox(width: 4),
-                  Text(
-                    _stressLevel.tempoLabel,
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: _stressLevel.color,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-              Text(
-                _formatDuration(_songDuration),
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          ClipRRect(
-            borderRadius: AppRadius.smBorder,
-            child: LinearProgressIndicator(
-              value: progress,
-              backgroundColor: AppColors.border,
-              valueColor: AlwaysStoppedAnimation<Color>(_stressLevel.color),
-              minHeight: 6,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Back button
-          GestureDetector(
-            onTap: () {
-              _resetGame();
-              Navigator.pop(context);
-            },
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: const BoxDecoration(
-                color: AppColors.background,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.arrow_back,
-                color: AppColors.textPrimary,
-                size: 20,
-              ),
-            ),
-          ),
-
-          // Title & Score
-          Column(
-            children: [
-              Text(
-                'Rhythm Flow',
-                style: AppTextStyles.h4.copyWith(fontSize: 18),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Score: $_score',
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  if (_stressLevel == RhythmStressLevel.low && _streak > 0) ...[
-                    const SizedBox(width: 12),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.bolt,
-                          size: 14,
-                          color: const Color(0xFF7BC67E),
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '$_streak streak',
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: const Color(0xFF7BC67E),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-
-          // Music & Reset buttons
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Music toggle
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _isMusicEnabled = !_isMusicEnabled;
-                  });
-                  if (_isPlaying) {
-                    if (_isMusicEnabled) {
-                      _playMusic();
-                    } else {
-                      _stopMusic();
-                    }
-                  }
-                },
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: _isMusicEnabled
-                        ? AppColors.primary.withValues(alpha: 0.1)
-                        : AppColors.surface,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _isMusicEnabled ? Icons.music_note : Icons.music_off,
-                    color: _isMusicEnabled
-                        ? AppColors.primary
-                        : AppColors.textHint,
-                    size: 18,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Reset button
-              GestureDetector(
-                onTap: _resetGame,
-                child: Container(
-                  width: 36,
-                  height: 36,
-                  decoration: const BoxDecoration(
-                    color: AppColors.background,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.refresh,
-                    color: AppColors.textPrimary,
-                    size: 18,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStressLevelSelector() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: AppRadius.lgBorder,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Row(
-            children: [
-              Icon(
-                Icons.monitor_heart_outlined,
-                size: 16,
-                color: AppColors.textSecondary,
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              Text(
-                'STRESS LEVEL (TEST MODE)',
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Stress Level Buttons
-          Row(
-            children: RhythmStressLevel.values.map((level) {
-              final isSelected = _stressLevel == level;
-              return Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    right: level != RhythmStressLevel.low ? AppSpacing.sm : 0,
-                  ),
-                  child: GestureDetector(
-                    onTap: () => _onStressLevelChanged(level),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                        vertical: AppSpacing.sm + 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected ? level.color : AppColors.surface,
-                        borderRadius: AppRadius.smBorder,
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: level.color.withValues(alpha: 0.4),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Center(
-                        child: Text(
-                          level.label,
-                          style: AppTextStyles.bodySmall.copyWith(
-                            color: isSelected
-                                ? Colors.white
-                                : AppColors.textSecondary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: AppSpacing.md),
-
-          // Adaptive Info
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Adaptive Tempo:',
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              Text(
-                _stressLevel.description,
-                style: AppTextStyles.bodySmall.copyWith(
-                  color: _stressLevel.color,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGameArea() {
-    return SingleChildScrollView(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(height: AppSpacing.lg),
-
-          // 2x2 Button Grid
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl),
-            child: SizedBox(
-              width: 280,
-              height: 280,
-              child: GridView.builder(
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                ),
-                itemCount: 4,
-                itemBuilder: (context, index) {
-                  return _buildRhythmButton(_buttons[index]);
-                },
-              ),
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          // Start/Pause Controls
-          if (!_isPlaying) ...[
-            Text(
-              'Tap the glowing button to match the rhythm',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: AppColors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              '${_stressLevel.bpm} BPM • ${_stressLevel.tempoLabel}',
-              style: AppTextStyles.bodySmall.copyWith(
-                color: AppColors.textHint,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            _buildStartButton(),
-          ] else ...[
-            _buildPauseButton(),
-          ],
-
-          const SizedBox(height: AppSpacing.lg),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRhythmButton(RhythmButton button) {
-    final isActive = _activeButton == button.id;
-
-    return GestureDetector(
-      onTap: () => _onButtonPress(button.id),
-      child: AnimatedBuilder(
-        animation: _pulseAnimation!,
-        builder: (context, child) {
-          final scale = isActive ? _pulseAnimation!.value : 1.0;
-          return Transform.scale(
-            scale: scale,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              decoration: BoxDecoration(
-                color: button.color.withValues(alpha: isActive ? 1.0 : 0.7),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: button.color.withValues(alpha: isActive ? 0.5 : 0.2),
-                    blurRadius: isActive ? 20 : 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      button.label,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (isActive && _stressLevel == RhythmStressLevel.high) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        '2×',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.9),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildStartButton() {
-    return GestureDetector(
-      onTap: _startGame,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.xl,
-          vertical: AppSpacing.md,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.primary,
-          borderRadius: AppRadius.lgBorder,
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.3),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.play_arrow, color: Colors.white, size: 24),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Start Flow',
-              style: AppTextStyles.button.copyWith(fontSize: 18),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPauseButton() {
-    return GestureDetector(
-      onTap: _pauseGame,
-      child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.lg,
-          vertical: AppSpacing.md,
-        ),
-        decoration: BoxDecoration(
-          color: AppColors.background,
-          borderRadius: AppRadius.mdBorder,
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.pause, color: AppColors.textPrimary, size: 20),
-            const SizedBox(width: AppSpacing.sm),
-            Text(
-              'Pause',
-              style: AppTextStyles.bodyMedium.copyWith(
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInstructions() {
-    String extraInfo = '';
-    if (_stressLevel == RhythmStressLevel.high) {
-      extraInfo = ' • Double points for calm focus';
-    } else if (_stressLevel == RhythmStressLevel.low) {
-      extraInfo = ' • Build streaks for bonuses';
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      child: Column(
-        children: [
-          Text(
-            'Follow the gentle rhythm. Let it guide you.',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: AppColors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            'Tempo adapts to your stress level$extraInfo',
-            style: AppTextStyles.bodySmall.copyWith(color: AppColors.textHint),
-            textAlign: TextAlign.center,
-          ),
-        ],
       ),
     );
   }
