@@ -58,3 +58,4 @@
 /backend/.env
 /backend/serviceAccountKey.json
 .idea/
+/frontend/.env
