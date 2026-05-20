@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'constants/app_constants.dart';
+import 'firebase_options.dart';
 import 'screens/auth_wrapper.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -12,7 +13,7 @@ void main() async {
   await dotenv.load(fileName: ".env");
 
   // Initialize Firebase
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -78,7 +79,7 @@ class StressCalmApp extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.primary,
             foregroundColor: Colors.white,
-            disabledBackgroundColor: AppColors.primary.withOpacity(0.6),
+            disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.6),
             elevation: 0,
             padding: const EdgeInsets.symmetric(vertical: 16),
             shape: RoundedRectangleBorder(borderRadius: AppRadius.mdBorder),
