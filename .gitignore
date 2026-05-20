@@ -57,3 +57,4 @@
 /backend/**/__pycache__/
 /backend/.env
 /backend/serviceAccountKey.json
+.idea/
